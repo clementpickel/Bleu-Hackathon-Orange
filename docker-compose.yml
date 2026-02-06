@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: release_notes_db
+    environment:
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpass
+      POSTGRES_DB: release_notes_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbuser -d release_notes_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant Vector Database (Optional)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: release_notes_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    profiles:
+      - qdrant
+
+  # FastAPI Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: release_notes_api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dbuser:dbpass@postgres:5432/release_notes_db
+      VECTOR_DB: faiss  # Set to 'qdrant' to use Qdrant
+      QDRANT_URL: http://qdrant:6333
+      GROK_API_KEY: ${GROK_API_KEY}
+      GROK_API_URL: ${GROK_API_URL:-https://api.x.ai/v1}
+      API_KEY: ${API_KEY:-dev_api_key_change_in_production}
+      ASSETS_PATH: /app/assets
+      DEBUG: ${DEBUG:-False}
+    volumes:
+      - ./assets:/app/assets:ro
+      - ./faiss_index:/app/faiss_index
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for database...';
+        sleep 5;
+        echo 'Running migrations...';
+        alembic upgrade head;
+        echo 'Starting API server...';
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+volumes:
+  postgres_data:
+  qdrant_data:
