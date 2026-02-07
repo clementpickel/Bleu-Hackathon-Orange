@@ -81,11 +81,15 @@ async def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(ge
         {
             "id": p.id,
             "model_name": p.model_name,
-            "version": p.version,
-            "end_of_life": p.end_of_life,
+            "is_end_of_life": p.is_end_of_life,
+            "end_of_life_date": p.end_of_life_date,
+            "end_of_support_date": p.end_of_support_date,
+            "status": p.status,
             "functionalities": p.functionalities,
+            "alternatives": p.alternatives,
             "release_date": p.release_date,
             "description": p.description,
+            "notes": p.notes,
             "source_file": p.source_file,
             "created_at": p.created_at.isoformat() if p.created_at else None
         }
@@ -188,6 +192,7 @@ async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, 
             "is_end_of_life": g.is_end_of_life,
             "status": g.status,
             "features": g.features,
+            "alternatives": g.alternatives,
             "notes": g.notes,
             "source_file": g.source_file,
             "created_at": g.created_at.isoformat() if g.created_at else None
@@ -220,6 +225,7 @@ async def get_edges(skip: int = 0, limit: int = 100, eol_only: bool = False, db:
             "status": e.status,
             "features": e.features,
             "hardware_specs": e.hardware_specs,
+            "alternatives": e.alternatives,
             "notes": e.notes,
             "source_file": e.source_file,
             "created_at": e.created_at.isoformat() if e.created_at else None

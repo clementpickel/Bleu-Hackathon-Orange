@@ -45,6 +45,7 @@ Extrait les informations suivantes au format JSON:
       "is_end_of_life": true/false,
       "status": "Active|Deprecated|End of Life",
       "features": ["liste des fonctionnalités"],
+      "alternatives": ["liste des produits alternatifs recommandés en remplacement"],
       "notes": "notes importantes"
     }}
   ],
@@ -59,6 +60,7 @@ Extrait les informations suivantes au format JSON:
       "status": "Active|Deprecated|End of Life",
       "features": ["liste des fonctionnalités"],
       "hardware_specs": {{"specs matérielles si disponibles"}},
+      "alternatives": ["liste des produits alternatifs recommandés en remplacement"],
       "notes": "notes importantes"
     }}
   ],
@@ -107,6 +109,7 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
             is_end_of_life=gw.get("is_end_of_life", False),
             status=gw.get("status"),
             features=gw.get("features"),
+            alternatives=gw.get("alternatives"),
             notes=gw.get("notes"),
             source_file=filename,
             raw_data=gw
@@ -127,6 +130,7 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
             status=ed.get("status"),
             features=ed.get("features"),
             hardware_specs=ed.get("hardware_specs"),
+            alternatives=ed.get("alternatives"),
             notes=ed.get("notes"),
             source_file=filename,
             raw_data=ed
