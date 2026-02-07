@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15-alpine
+    container_name: bleu-hackathon-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hackathon
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
   api:
     build: .
     container_name: bleu-hackathon-api
@@ -8,6 +21,14 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/app/app
+      - ./assets:/app/assets
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/hackathon
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - db
     restart: unless-stopped
+
+volumes:
+  postgres_data:
