@@ -11,7 +11,7 @@ class ProductModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     model_name = Column(String(255), nullable=False)
-    version = Column(String(100), nullable=False)
+    version = Column(String(100), nullable=True)
     end_of_life = Column(String(255), nullable=True)
     functionalities = Column(JSON, nullable=True)  # Stocke les fonctionnalités en JSON
     release_date = Column(String(100), nullable=True)
