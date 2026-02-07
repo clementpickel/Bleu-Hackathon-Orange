@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from app.models import ProductModel, GatewayVersion, EdgeVersion, OrchestratorVersion
 from app.llm_provider import get_llm_provider
+from datetime import datetime
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
@@ -21,9 +22,12 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def extract_gateway_edge_info(text: str, filename: str) -> Dict[str, Any]:
     """Extrait les informations de Gateway et Edge avec leurs versions et dates EOL"""
     provider = get_llm_provider()
+    current_date = datetime.now().strftime("%d/%m/%Y")
     
     prompt = f"""
 Analyse le texte suivant extrait d'un PDF sur des produits SD-WAN (VeloCloud/Arista) et extrait les informations au format JSON.
+
+DATE ACTUELLE: {current_date}
 
 IMPORTANT: Il existe 3 types de software distincts (UN seul software par type):
 - Gateway: logiciel pour passerelles/gateways
@@ -52,8 +56,8 @@ Extrait les informations suivantes au format JSON:
       "release_date": "date de release de cette version software au format DD/MM/YYYY",
       "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
       "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
-      "is_end_of_life": true/false,
-      "status": "Active|Deprecated|End of Life",
+      "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
+      "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "features": ["liste des fonctionnalités"],
       "notes": "notes importantes"
     }}
@@ -65,8 +69,8 @@ Extrait les informations suivantes au format JSON:
       "release_date": "date de release de cette version software au format DD/MM/YYYY",
       "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
       "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
-      "is_end_of_life": true/false,
-      "status": "Active|Deprecated|End of Life",
+      "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
+      "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "features": ["liste des fonctionnalités"],
       "notes": "notes importantes"
     }}
@@ -78,8 +82,8 @@ Extrait les informations suivantes au format JSON:
       "release_date": "date de release de cette version software au format DD/MM/YYYY",
       "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
       "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
-      "is_end_of_life": true/false,
-      "status": "Active|Deprecated|End of Life",
+      "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
+      "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "features": ["liste des fonctionnalités"],
       "notes": "notes importantes"
     }}

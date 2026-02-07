@@ -82,6 +82,7 @@ async def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(ge
         {
             "id": p.id,
             "model_name": p.model_name,
+            "product_type": p.product_type,
             "document_date": p.document_date,
             "is_end_of_life": p.is_end_of_life,
             "end_of_life_date": p.end_of_life_date,

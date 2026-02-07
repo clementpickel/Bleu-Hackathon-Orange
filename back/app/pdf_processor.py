@@ -4,6 +4,7 @@ from typing import Dict, Any
 from sqlalchemy.orm import Session
 from app.models import ProductModel
 from app.llm_provider import get_llm_provider
+from datetime import datetime
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
@@ -21,9 +22,12 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def extract_info_with_llm(text: str, filename: str) -> Dict[str, Any]:
     """Utilise le LLM configuré pour extraire les informations structurées du texte"""
     provider = get_llm_provider()
+    current_date = datetime.now().strftime("%d/%m/%Y")
     
     prompt = f"""
 Analyse le texte suivant extrait d'un PDF sur des produits SD-WAN et extrait les informations générales des PRODUITS HARDWARE au format JSON.
+
+DATE ACTUELLE: {current_date}
 
 IMPORTANT - Définition d'un PRODUIT valide:
 ✓ PRODUIT VALIDE = modèle hardware physique avec numéro/référence spécifique
@@ -77,10 +81,11 @@ Format JSON attendu (array de produits):
   "products": [
     {{
       "model_name": "nom du modèle complet (ex: Edge 710-W, Gateway, Edge 840 Wi-Fi)",
-      "is_end_of_life": true/false,
+      "product_type": "Edge|Gateway|Orchestrator (déterminer selon le produit)",
+      "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
       "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
       "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
-      "status": "Active|Deprecated|End of Life",
+      "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "functionalities": ["liste des fonctionnalités principales"],
       "alternatives": ["liste des produits alternatifs recommandés"],
       "release_date": "date de première release au format DD/MM/YYYY si mentionnée",
@@ -93,6 +98,12 @@ Format JSON attendu (array de produits):
 IMPORTANT - FORMAT DES DATES:
 TOUTES les dates doivent être au format DD/MM/YYYY (jour/mois/année).
 Exemples: "15/03/2025", "01/12/2026", "30/06/2024"
+
+IMPORTANT - PRODUCT_TYPE:
+Déterminer automatiquement le type de produit:
+- "Edge" si le model_name contient "Edge" et un numéro (Edge 680, Edge 840, etc.)
+- "Gateway" si le model_name contient "Gateway" ou est VCG/Virtual Cloud Gateway
+- "Orchestrator" si le model_name contient "Orchestrator" ou est VCO
 
 ATTENTION: 
 - Extraire TOUS les produits hardware mentionnés dans le document
@@ -143,6 +154,7 @@ def process_pdf_and_store(pdf_path: str, filename: str, db: Session) -> list[Pro
         # Créer l'entrée dans la base de données
         product = ProductModel(
             model_name=model_name,
+            product_type=product_data.get("product_type"),
             document_date=document_date,  # Date du document (commune à tous)
             is_end_of_life=product_data.get("is_end_of_life", False),
             end_of_life_date=product_data.get("end_of_life_date"),

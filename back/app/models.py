@@ -11,6 +11,7 @@ class ProductModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     model_name = Column(String(255), nullable=False, index=True)
+    product_type = Column(String(50), nullable=True)  # Edge, Gateway, Orchestrator
     is_end_of_life = Column(Boolean, default=False)
     end_of_life_date = Column(String(100), nullable=True)
     end_of_support_date = Column(String(100), nullable=True)
