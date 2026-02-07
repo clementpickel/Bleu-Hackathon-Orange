@@ -47,12 +47,16 @@ async def root():
     return {"message": "Welcome to Bleu Hackathon Orange API"}
 
 
-@app.post("/process-pdfs", tags=["PDF Processing"])
-async def process_pdfs(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+@app.post("/process", tags=["PDF Processing"])
+async def process(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
-    Traite tous les PDFs dans le dossier assets et extrait les informations
+    Traite tous les PDFs dans le dossier assets et extrait TOUTES les informations:
+    - Produits (hardware et software)
+    - Versions (Gateway, Edge, Orchestrator)
+    - End of life dates et statuts
+    - Fonctionnalités et instructions d'upgrade
     
-    Utilise OpenAI pour extraire les modèles, versions, end of life et fonctionnalités
+    Ce endpoint unifié combine le traitement des produits et des versions.
     """
     try:
         assets_dir = "/app/assets"
@@ -63,14 +67,28 @@ async def process_pdfs(background_tasks: BackgroundTasks, db: Session = Depends(
         if not pdf_files:
             raise HTTPException(status_code=404, detail="Aucun fichier PDF trouvé dans le dossier assets")
         
-        # Traiter les PDFs
-        results = process_all_pdfs(assets_dir, db)
+        # Traiter les PDFs pour les produits
+        products_results = process_all_pdfs(assets_dir, db)
+        
+        # Traiter les PDFs pour les versions (Gateway, Edge, Orchestrator)
+        versions_results = process_all_pdfs_gateway_edge(assets_dir, db)
         
         return {
             "status": "success",
-            "processed": len(results),
+            "products": {
+                "processed": len(products_results),
+                "message": f"{len(products_results)} produits extraits"
+            },
+            "versions": {
+                "total_gateways": versions_results["total_gateways"],
+                "total_edges": versions_results["total_edges"],
+                "total_orchestrators": versions_results["total_orchestrators"],
+                "processed_files": versions_results["processed_files"],
+                "errors": versions_results["errors"],
+                "message": f"{versions_results['total_gateways']} gateways, {versions_results['total_edges']} edges, {versions_results['total_orchestrators']} orchestrators extraits"
+            },
             "total_pdfs": len(pdf_files),
-            "message": f"{len(results)} PDFs traités avec succès"
+            "message": f"Traitement complet: {len(products_results)} produits et {versions_results['total_gateways'] + versions_results['total_edges'] + versions_results['total_orchestrators']} versions extraits"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement: {str(e)}")
@@ -140,42 +158,6 @@ async def delete_product(product_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"status": "success", "message": f"Produit {product_id} supprimé"}
-
-
-@app.post("/process-versions", tags=["PDF Processing", "Versions"])
-async def process_versions(db: Session = Depends(get_db)):
-    """
-    Traite tous les PDFs pour extraire les versions Gateway, Edge et Orchestrator avec dates EOL
-    
-    Extrait spécifiquement:
-    - Versions de Gateway (software uniquement)
-    - Versions d'Edge (software uniquement)
-    - Versions d'Orchestrator/VCO (software uniquement)
-    - Dates de fin de vie et statuts
-    """
-    try:
-        assets_dir = "/app/assets"
-        if not os.path.exists(assets_dir):
-            raise HTTPException(status_code=404, detail=f"Dossier assets non trouvé: {assets_dir}")
-        
-        pdf_files = [f for f in os.listdir(assets_dir) if f.endswith('.pdf')]
-        if not pdf_files:
-            raise HTTPException(status_code=404, detail="Aucun fichier PDF trouvé dans le dossier assets")
-        
-        # Traiter les PDFs
-        results = process_all_pdfs_gateway_edge(assets_dir, db)
-        
-        return {
-            "status": "success",
-            "total_gateways": results["total_gateways"],
-            "total_edges": results["total_edges"],
-            "total_orchestrators": results["total_orchestrators"],
-            "processed_files": results["processed_files"],
-            "errors": results["errors"],
-            "message": f"{results['total_gateways']} gateways, {results['total_edges']} edges, {results['total_orchestrators']} orchestrators extraits"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors du traitement: {str(e)}")
 
 
 @app.get("/gateways", response_model=List[dict], tags=["Versions"])
