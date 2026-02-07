@@ -1,12 +1,9 @@
 import os
-from openai import OpenAI
 from pypdf import PdfReader
 from typing import Dict, Any
-import json
 from sqlalchemy.orm import Session
 from app.models import ProductModel
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+from app.llm_provider import get_llm_provider
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
@@ -21,8 +18,10 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         raise Exception(f"Erreur lors de la lecture du PDF: {str(e)}")
 
 
-def extract_info_with_openai(text: str, filename: str) -> Dict[str, Any]:
-    """Utilise OpenAI pour extraire les informations structurées du texte"""
+def extract_info_with_llm(text: str, filename: str) -> Dict[str, Any]:
+    """Utilise le LLM configuré pour extraire les informations structurées du texte"""
+    provider = get_llm_provider()
+    
     prompt = f"""
 Analyse le texte suivant extrait d'un PDF sur des produits SD-WAN et extrait les informations suivantes au format JSON:
 - model_name: le nom du modèle/produit
@@ -41,22 +40,8 @@ Texte:
 
 Réponds uniquement avec le JSON, sans texte additionnel.
 """
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "Tu es un assistant qui extrait des informations structurées de documents techniques."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        return result
-    except Exception as e:
-        raise Exception(f"Erreur lors de l'appel à OpenAI: {str(e)}")
+    
+    return provider.extract_info(text, prompt)
 
 
 def process_pdf_and_store(pdf_path: str, filename: str, db: Session) -> ProductModel:
@@ -64,8 +49,8 @@ def process_pdf_and_store(pdf_path: str, filename: str, db: Session) -> ProductM
     # Extraire le texte
     text = extract_text_from_pdf(pdf_path)
     
-    # Extraire les informations avec OpenAI
-    extracted_data = extract_info_with_openai(text, filename)
+    # Extraire les informations avec le LLM
+    extracted_data = extract_info_with_llm(text, filename)
     
     # Créer l'entrée dans la base de données
     product = ProductModel(

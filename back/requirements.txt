@@ -5,3 +5,4 @@ psycopg[binary]
 pypdf
 openai
 python-dotenv
+google-generativeai
