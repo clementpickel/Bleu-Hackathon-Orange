@@ -5,7 +5,10 @@ from app.database import init_db, get_db
 from app.models import ProductModel, GatewayVersion, EdgeVersion, OrchestratorVersion
 from app.pdf_processor import process_all_pdfs
 from app.version_processor import process_all_pdfs_gateway_edge
+from app.llm_provider import get_llm_provider
 from typing import List
+from pydantic import BaseModel
+from datetime import datetime
 import os
 
 app = FastAPI(
@@ -197,6 +200,7 @@ async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, 
             "is_end_of_life": g.is_end_of_life,
             "status": g.status,
             "features": g.features,
+            "upgrade_instructions": g.upgrade_instructions,
             "notes": g.notes,
             "source_file": g.source_file,
             "created_at": g.created_at.isoformat() if g.created_at else None
@@ -228,6 +232,7 @@ async def get_edges(skip: int = 0, limit: int = 100, eol_only: bool = False, db:
             "is_end_of_life": e.is_end_of_life,
             "status": e.status,
             "features": e.features,
+            "upgrade_instructions": e.upgrade_instructions,
             "notes": e.notes,
             "source_file": e.source_file,
             "created_at": e.created_at.isoformat() if e.created_at else None
@@ -259,6 +264,7 @@ async def get_orchestrators(skip: int = 0, limit: int = 100, eol_only: bool = Fa
             "is_end_of_life": o.is_end_of_life,
             "status": o.status,
             "features": o.features,
+            "upgrade_instructions": o.upgrade_instructions,
             "notes": o.notes,
             "source_file": o.source_file,
             "created_at": o.created_at.isoformat() if o.created_at else None
@@ -298,3 +304,181 @@ async def get_eol_summary(db: Session = Depends(get_db)):
             "active": total_orchestrators - eol_orchestrators
         }
     }
+
+
+class VersionInfo(BaseModel):
+    """Modèle pour les informations de version"""
+    component: str  # gateway, edge, orchestrator
+    current_version: str
+    target_version: str = None  # Optionnel
+
+
+class UpgradeAnalysisRequest(BaseModel):
+    """Requête pour l'analyse de chemin d'upgrade"""
+    versions: List[VersionInfo]
+
+
+@app.post("/analyze-upgrade-path", tags=["Analysis"])
+async def analyze_upgrade_path(request: UpgradeAnalysisRequest, db: Session = Depends(get_db)):
+    """
+    Analyse le chemin d'upgrade pour une liste de composants et leurs versions
+    
+    Utilise un modèle avec réflexion (o1-mini) pour analyser les dépendances
+    et générer un plan d'upgrade séquentiel.
+    
+    Comprend les patterns de versions:
+    - Instructions pour "5.X" s'appliquent à toutes les versions 5.x (5.0.0, 5.1.2, etc.)
+    - Instructions pour "5.0.X" s'appliquent à toutes les versions 5.0.x (5.0.0, 5.0.1, etc.)
+    
+    Exemple de requête:
+    {
+        "versions": [
+            {"component": "gateway", "current_version": "5.4.0", "target_version": "6.2.0"},
+            {"component": "edge", "current_version": "4.5.0", "target_version": "6.4.0"},
+            {"component": "orchestrator", "current_version": "5.2.0", "target_version": "5.5.0"}
+        ]
+    }
+    """
+    try:
+        import re
+        provider = get_llm_provider()
+        current_date = datetime.now().strftime("%d/%m/%Y")
+        
+        def matches_version_pattern(version: str, pattern: str) -> bool:
+            """Vérifie si une version correspond à un pattern (5.X, 5.0.X, etc.)"""
+            if 'X' not in pattern and 'x' not in pattern:
+                return version == pattern
+            
+            # Convertir pattern en regex: 5.X -> 5\.\d+, 5.0.X -> 5\.0\.\d+
+            regex_pattern = pattern.upper().replace('.', r'\.').replace('X', r'\d+')
+            return bool(re.match(f"^{regex_pattern}$", version))
+        
+        # Construire le contexte enrichi
+        context_parts = []
+        context_parts.append(f"DATE ACTUELLE: {current_date}\n")
+        context_parts.append("=== CONFIGURATION ACTUELLE ET CIBLES ===\n")
+        
+        all_instructions = {}
+        
+        for version_info in request.versions:
+            component = version_info.component.lower()
+            current_ver = version_info.current_version
+            target_ver = version_info.target_version
+            
+            context_parts.append(f"\n--- {component.upper()} ---")
+            context_parts.append(f"Version actuelle: {current_ver}")
+            if target_ver:
+                context_parts.append(f"Version cible: {target_ver}")
+            
+            # Récupérer TOUTES les versions entre current et target (+ patterns)
+            if component == "gateway":
+                Model = GatewayVersion
+            elif component == "edge":
+                Model = EdgeVersion
+            elif component == "orchestrator":
+                Model = OrchestratorVersion
+            else:
+                continue
+            
+            # Récupérer toutes les versions disponibles pour ce composant
+            all_vers = db.query(Model).all()
+            
+            # Filtrer celles qui sont pertinentes
+            relevant_versions = []
+            seen_versions = set()
+            
+            for ver in all_vers:
+                # Ajouter current et target
+                if ver.version in [current_ver, target_ver]:
+                    if ver.version not in seen_versions:
+                        relevant_versions.append(ver)
+                        seen_versions.add(ver.version)
+                # Ajouter les versions avec patterns qui matchent current_ver ou target_ver
+                elif 'X' in ver.version or 'x' in ver.version:
+                    if matches_version_pattern(current_ver, ver.version) or (target_ver and matches_version_pattern(target_ver, ver.version)):
+                        if ver.version not in seen_versions:
+                            relevant_versions.append(ver)
+                            seen_versions.add(ver.version)
+            
+            all_instructions[component] = []
+            for ver in relevant_versions:
+                ver_info = {
+                    "version": ver.version,
+                    "release_date": ver.release_date,
+                    "eol_date": ver.end_of_life_date,
+                    "is_eol": ver.is_end_of_life,
+                    "instructions": ver.upgrade_instructions or []
+                }
+                all_instructions[component].append(ver_info)
+                
+                context_parts.append(f"\nVersion {ver.version}:")
+                if ver.release_date:
+                    context_parts.append(f"  📅 Release: {ver.release_date}")
+                if ver.end_of_life_date:
+                    context_parts.append(f"  ⏰ EOL: {ver.end_of_life_date}")
+                if ver.is_end_of_life:
+                    context_parts.append(f"  ⚠️ **END OF LIFE**")
+                if ver.upgrade_instructions:
+                    context_parts.append(f"  📋 Instructions d'upgrade:")
+                    for instruction in ver.upgrade_instructions:
+                        context_parts.append(f"    • {instruction}")
+        
+        context = "\n".join(context_parts)
+        
+        # Prompt optimisé pour modèle avec réflexion
+        prompt = f"""Tu es un expert en infrastructure SD-WAN (VeloCloud/VMware/Arista).
+
+{context}
+
+=== RÈGLES IMPORTANTES ===
+1. **DÉPENDANCES**: Edge dépend de Gateway, Gateway dépend d'Orchestrator
+2. **ORDRE OBLIGATOIRE**: Orchestrator PUIS Gateway PUIS Edge
+3. **PATTERNS DE VERSIONS**: Les instructions pour "5.X" s'appliquent à toutes les versions 5.x (5.0.0, 5.1.2, 5.4.0, etc.)
+4. **COMPATIBILITÉ**: Vérifier que chaque composant est compatible avec les versions des autres composants
+5. **PRÉ-REQUIS**: ESXi, dépendances système, versions minimales requises
+6. **HARDWARE**: TOUS les composants hardware (appliances physiques Edge/Gateway) nécessitent également un upgrade et doivent être considérés dans le plan. Vérifier les EOL hardware et les remplacements nécessaires.
+
+=== CONTEXTE D'ANALYSE ===
+Ce prompt est utilisé pour analyser un chemin d'upgrade complet incluant:
+- Software versions (Orchestrator/Gateway/Edge)
+- Hardware appliances (modèles physiques qui peuvent être EOL)
+- Dépendances entre composants
+- Versions intermédiaires nécessaires
+- Pré-requis système (ESXi, RAM, CPU, etc.)
+
+=== TÂCHE ===
+Génère un plan d'upgrade structuré sous format JSON avec les champs suivants:
+- reasoning: Explication détaillée de ton raisonnement sur l'ordre des opérations, les dépendances, et les considérations hardware
+- risks: Liste des risques avec severity (critical|high|medium|low), description, et mitigation
+- steps: Liste ordonnée des étapes d'upgrade avec:
+  * step_number: numéro de l'étape
+  * component: orchestrator|gateway|edge
+  * action: upgrade|replace|validate
+  * from_version: version de départ
+  * to_version: version cible
+  * duration_minutes: durée estimée
+  * prerequisites: liste des pré-requis (ex: ["ESXi 6.7 U3 minimum", "Backup completed", "Hardware model X"])
+  * instructions: liste des instructions détaillées
+  * validation: liste des tests de validation
+  * rollback: liste des étapes de rollback
+  * hardware_notes: notes spécifiques sur le hardware si applicable
+- total_duration_minutes: Durée totale estimée
+- recommended_maintenance_window: Fenêtre de maintenance recommandée (jour et horaire)
+- critical_notes: Liste des avertissements importants et considérations hardware
+
+IMPORTANT: Retourne UNIQUEMENT le JSON valide, sans markdown ni texte additionnel.
+"""
+        
+        # Utiliser le modèle avec réflexion
+        result = provider.analyze_with_reasoning(prompt)
+        
+        return {
+            "status": "success",
+            "result": result,
+            "input_versions": [v.dict() for v in request.versions],
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")
+

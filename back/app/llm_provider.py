@@ -14,6 +14,16 @@ class LLMProvider(ABC):
     def extract_info(self, text: str, prompt: str) -> Dict[str, Any]:
         """Extrait les informations structurées d'un texte avec un prompt personnalisé"""
         pass
+    
+    @abstractmethod
+    def analyze_text(self, prompt: str) -> str:
+        """Analyse un texte et retourne une réponse textuelle (non-JSON)"""
+        pass
+    
+    @abstractmethod
+    def analyze_with_reasoning(self, prompt: str) -> Dict[str, Any]:
+        """Analyse avec réflexion profonde, retourne JSON structuré avec raisonnement"""
+        pass
 
 
 class OpenAIProvider(LLMProvider):
@@ -42,6 +52,50 @@ class OpenAIProvider(LLMProvider):
             return result
         except Exception as e:
             raise Exception(f"Erreur lors de l'appel à OpenAI: {str(e)}")
+    
+    def analyze_text(self, prompt: str) -> str:
+        """Analyse un texte et retourne une réponse textuelle"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN et en gestion de versions logicielles."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à OpenAI: {str(e)}")
+    
+    def analyze_with_reasoning(self, prompt: str) -> Dict[str, Any]:
+        """Analyse avec réflexion profonde (utilise o1-mini)"""
+        try:
+            # Utiliser o1-mini pour raisonnement complexe
+            response = self.client.chat.completions.create(
+                model="o1-mini",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            content = response.choices[0].message.content
+            # Extraire le JSON de la réponse
+            import re
+            json_match = re.search(r'```json\s*({.*?})\s*```', content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            else:
+                # Essayer de parser directement
+                try:
+                    result = json.loads(content)
+                except:
+                    # Si échec, parser comme markdown
+                    result = {"reasoning": content, "steps": []}
+            
+            return result
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à OpenAI (reasoning): {str(e)}")
 
 
 class GrokProvider(LLMProvider):
@@ -86,6 +140,48 @@ class GrokProvider(LLMProvider):
             return result
         except Exception as e:
             raise Exception(f"Erreur lors de l'appel à Grok: {str(e)}")
+    
+    def analyze_text(self, prompt: str) -> str:
+        """Analyse un texte et retourne une réponse textuelle"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN et en gestion de versions logicielles."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Grok: {str(e)}")
+    
+    def analyze_with_reasoning(self, prompt: str) -> Dict[str, Any]:
+        """Analyse avec réflexion (Grok utilise temperature élevée pour simulation)"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN. Analyse en profondeur et retourne un JSON structuré."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5
+            )
+            
+            content = response.choices[0].message.content
+            import re
+            json_match = re.search(r'```json\s*({.*?})\s*```', content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            else:
+                try:
+                    result = json.loads(content)
+                except:
+                    result = {"reasoning": content, "steps": []}
+            
+            return result
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Grok (reasoning): {str(e)}")
 
 
 class GeminiProvider(LLMProvider):
@@ -125,6 +221,43 @@ class GeminiProvider(LLMProvider):
             return result
         except Exception as e:
             raise Exception(f"Erreur lors de l'appel à Gemini: {str(e)}")
+    
+    def analyze_text(self, prompt: str) -> str:
+        """Analyse un texte et retourne une réponse textuelle"""
+        try:
+            response = self.model.generate_content(
+                prompt,
+                generation_config={"temperature": 0.3}
+            )
+            return response.text
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Gemini: {str(e)}")
+    
+    def analyze_with_reasoning(self, prompt: str) -> Dict[str, Any]:
+        """Analyse avec réflexion profonde (Gemini 1.5 Pro avec thinking)"""
+        try:
+            response = self.model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.5,
+                    "response_mime_type": "application/json"
+                }
+            )
+            
+            content = response.text
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                else:
+                    result = {"reasoning": content, "steps": []}
+            
+            return result
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Gemini (reasoning): {str(e)}")
 
 
 class GroqProvider(LLMProvider):
@@ -169,6 +302,49 @@ class GroqProvider(LLMProvider):
             return result
         except Exception as e:
             raise Exception(f"Erreur lors de l'appel à Groq: {str(e)}")
+    
+    def analyze_text(self, prompt: str) -> str:
+        """Analyse un texte et retourne une réponse textuelle"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN et en gestion de versions logicielles."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Groq: {str(e)}")
+    
+    def analyze_with_reasoning(self, prompt: str) -> Dict[str, Any]:
+        """Analyse avec réflexion (Groq avec llama-3.1)"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN. Analyse en profondeur et retourne un JSON structuré."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                else:
+                    result = {"reasoning": content, "steps": []}
+            
+            return result
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Groq (reasoning): {str(e)}")
 
 
 def get_llm_provider() -> LLMProvider:
