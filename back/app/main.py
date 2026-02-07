@@ -6,6 +6,7 @@ from app.models import ProductModel, GatewayVersion, EdgeVersion, OrchestratorVe
 from app.pdf_processor import process_all_pdfs
 from app.version_processor import process_all_pdfs_gateway_edge
 from app.llm_provider import get_llm_provider
+from app.pdf_tools import PDF_RETRIEVAL_TOOLS, execute_pdf_tool, list_available_pdfs
 from typing import List
 from pydantic import BaseModel
 from datetime import datetime
@@ -481,4 +482,223 @@ IMPORTANT: Retourne UNIQUEMENT le JSON valide, sans markdown ni texte additionne
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")
+
+
+@app.post("/analyze-upgrade-with-pdfs", tags=["Analysis"])
+async def analyze_upgrade_with_pdfs(request: UpgradeAnalysisRequest, db: Session = Depends(get_db)):
+    """
+    Génère un guide d'upgrade TEXTE complet avec accès aux PDFs via function calling.
+    
+    Cette version AVANCÉE permet au LLM de:
+    - Lister les PDFs disponibles
+    - Récupérer le contenu des PDFs des versions cibles/voulues (target versions)
+    - Rechercher des informations dans les PDFs des versions cibles
+    
+    Le LLM génère un guide CLAIR et STRUCTURÉ étape par étape pour:
+    - Upgrader chaque hardware (appliances physiques et VMs)
+    - Assurer la compatibilité entre composants
+    - Respecter l'ordre des dépendances (Orchestrator → Gateway → Edge)
+    - Identifier les versions intermédiaires nécessaires
+    - Fournir des instructions précises avec validation et rollback
+    
+    Exemple de requête:
+    {
+        "versions": [
+            {"component": "orchestrator", "current_version": "5.2.0", "target_version": "6.4.0"},
+            {"component": "gateway", "current_version": "5.4.0", "target_version": "6.4.0"},
+            {"component": "edge", "current_version": "4.5.0", "target_version": "6.4.0"}
+        ]
+    }
+    
+    Retourne: Guide en format TEXTE avec sections structurées (résumé, compatibilité, 
+    risques, plan étape par étape, notes importantes).
+    
+    Note: Les PDFs fournis sont ceux des versions cibles (target_version), pas des versions actuelles.
+    """
+    try:
+        import re
+        provider = get_llm_provider()
+        current_date = datetime.now().strftime("%d/%m/%Y")
+        
+        # Créer l'exécuteur de tools qui a accès à la DB
+        def tool_executor(function_name: str, arguments: dict) -> dict:
+            return execute_pdf_tool(function_name, arguments, db)
+        
+        # Construire le contexte initial (plus léger, le LLM ira chercher les PDFs)
+        context_parts = []
+        context_parts.append(f"DATE ACTUELLE: {current_date}\n")
+        context_parts.append("=== CONFIGURATION ACTUELLE ET CIBLES ===\n")
+        
+        # Liste des PDFs disponibles pour information
+        available_pdfs = list_available_pdfs("all", db)
+        context_parts.append(f"\n📁 PDFs disponibles: {available_pdfs['total']} fichiers")
+        context_parts.append("Tu peux utiliser les outils (tools) pour consulter les PDFs des versions cibles.\n")
+        
+        for version_info in request.versions:
+            component = version_info.component.lower()
+            current_ver = version_info.current_version
+            target_ver = version_info.target_version
+            
+            context_parts.append(f"\n--- {component.upper()} ---")
+            context_parts.append(f"Version actuelle: {current_ver}")
+            if target_ver:
+                context_parts.append(f"Version cible: {target_ver}")
+            
+            # Récupérer uniquement la version TARGET (wanted version) depuis la DB
+            if component == "gateway":
+                Model = GatewayVersion
+            elif component == "edge":
+                Model = EdgeVersion
+            elif component == "orchestrator":
+                Model = OrchestratorVersion
+            else:
+                continue
+            
+            # Query only for target version (the wanted version)
+            target_version_obj = None
+            if target_ver:
+                target_version_obj = db.query(Model).filter(Model.version == target_ver).first()
+            
+            # Show only target version PDF information
+            if target_version_obj:
+                context_parts.append(f"\n📄 PDF de la version cible {target_version_obj.version}:")
+                if target_version_obj.source_file:
+                    context_parts.append(f"  Fichier: {target_version_obj.source_file}")
+                if target_version_obj.release_date:
+                    context_parts.append(f"  📅 Release: {target_version_obj.release_date}")
+                if target_version_obj.end_of_life_date:
+                    context_parts.append(f"  ⏰ EOL: {target_version_obj.end_of_life_date}")
+                if target_version_obj.is_end_of_life:
+                    context_parts.append(f"  ⚠️ **END OF LIFE**")
+        
+        context = "\n".join(context_parts)
+        
+        # Prompt avec awareness des tools
+        prompt = f"""Tu es un expert en infrastructure SD-WAN (VeloCloud/VMware/Arista).
+
+{context}
+
+=== OUTILS DISPONIBLES ===
+Tu as accès à 3 outils puissants:
+1. **list_available_pdfs**: Liste tous les PDFs disponibles avec métadonnées
+2. **get_pdf_content**: Récupère le contenu complet d'un PDF spécifique
+3. **search_pdf_for_version**: Recherche une version spécifique dans tous les PDFs
+
+UTILISE CES OUTILS pour:
+- Récupérer les PDFs des **versions cibles/voulues** (target versions)
+- Lire les release notes et instructions détaillées pour les versions cibles
+- Vérifier les pré-requis et compatibilités des nouvelles versions
+- Identifier les versions intermédiaires nécessaires pour atteindre la cible
+
+=== RÈGLES IMPORTANTES ===
+1. **DÉPENDANCES**: Edge dépend de Gateway, Gateway dépend d'Orchestrator
+2. **ORDRE OBLIGATOIRE**: Orchestrator PUIS Gateway PUIS Edge
+3. **PATTERNS DE VERSIONS**: Les instructions pour "5.X" s'appliquent à toutes les versions 5.x
+4. **COMPATIBILITÉ**: Vérifier que chaque composant est compatible avec les autres
+5. **PRÉ-REQUIS**: ESXi, dépendances système, versions minimales requises
+6. **HARDWARE**: Considérer les appliances physiques ET software (VM) et leurs EOL
+7. **UTILISER LES PDFS**: Récupère les informations détaillées depuis les PDFs sources
+
+=== TÂCHE ===
+Génère un guide d'upgrade COMPLET en format TEXTE CLAIR avec les sections suivantes:
+
+📋 **RÉSUMÉ DE L'UPGRADE**
+- Versions actuelles → Versions cibles pour chaque composant
+- Durée totale estimée
+- Fenêtre de maintenance recommandée
+- Sources PDF consultées
+
+⚠️ **ANALYSE DE COMPATIBILITÉ**
+- Vérification des compatibilités entre composants (Orchestrator ↔ Gateway ↔ Edge)
+- Versions intermédiaires nécessaires (si un saut de version direct n'est pas supporté)
+- Pré-requis système (ESXi, RAM, CPU, etc.)
+- Identifie les hardware physiques et virtuels concernés
+
+🚨 **RISQUES ET PRÉCAUTIONS**
+Liste des risques par niveau de criticité:
+- CRITIQUE: [description + mitigation]
+- ÉLEVÉ: [description + mitigation]
+- MOYEN: [description + mitigation]
+
+📝 **PLAN D'UPGRADE ÉTAPE PAR ÉTAPE**
+
+Pour chaque étape, fournis:
+
+**ÉTAPE X: [Titre descriptif]**
+- Composant: [Orchestrator/Gateway/Edge]
+- Type: [Software VM / Hardware Appliance / Validation]
+- Action: [Upgrade / Replace / Configure / Test]
+- Version: [current] → [target]
+- Durée estimée: [X] minutes
+
+Pré-requis:
+• [Liste des pré-requis à vérifier avant cette étape]
+
+Instructions détaillées:
+1. [Instruction précise étape par étape]
+2. [Inclure les commandes CLI si pertinent]
+3. [Inclure les captures d'écran/menus GUI si pertinent]
+
+Validation:
+✓ [Tests à effectuer pour valider cette étape]
+✓ [Critères de succès mesurables]
+
+Rollback (en cas d'échec):
+↩️ [Procédure de retour arrière si cette étape échoue]
+
+---
+
+🔍 **NOTES IMPORTANTES**
+- Considérations hardware spécifiques
+- Liens vers les PDFs sources pour plus de détails
+- Contacts support recommandés
+- Backup et snapshots critiques
+
+**IMPORTANT**: 
+- Commence par lister les PDFs disponibles
+- Récupère les PDFs des **versions cibles/voulues** (target versions)
+- Base ton analyse sur le contenu réel des PDFs des versions cibles
+- Cite les PDFs sources utilisés dans chaque section
+- Fournis un texte CLAIR et STRUCTURÉ, pas de JSON
+- Utilise des émojis et formatage markdown pour la lisibilité
+- Sois TRÈS PRÉCIS sur les étapes hardware vs software
+"""
+        
+        # Utiliser analyze_with_tools
+        result = provider.analyze_with_tools(
+            prompt=prompt,
+            tools=PDF_RETRIEVAL_TOOLS,
+            tool_executor=tool_executor,
+            max_iterations=8  # Donner plus d'itérations pour consulter plusieurs PDFs
+        )
+        
+        return {
+            "status": "success",
+            "result": result,
+            "input_versions": [v.dict() for v in request.versions],
+            "method": "function_calling_with_pdfs",
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")
+
+
+@app.get("/list-pdfs", tags=["PDFs"])
+async def list_pdfs_endpoint(component_type: str = "all", db: Session = Depends(get_db)):
+    """
+    Liste tous les PDFs disponibles avec leurs métadonnées.
+    
+    Parameters:
+    - component_type: Filtrer par type (gateway, edge, orchestrator, ou all)
+    
+    Returns:
+    - Liste des PDFs avec versions couvertes, dates, tailles
+    """
+    try:
+        result = list_available_pdfs(component_type, db)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
 

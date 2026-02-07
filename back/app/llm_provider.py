@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Callable
 import os
 import json
 
@@ -24,6 +24,17 @@ class LLMProvider(ABC):
     def analyze_with_reasoning(self, prompt: str) -> Dict[str, Any]:
         """Analyse avec réflexion profonde, retourne JSON structuré avec raisonnement"""
         pass
+    
+    def analyze_with_tools(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        tool_executor: Callable[[str, Dict[str, Any]], Dict[str, Any]],
+        max_iterations: int = 5
+    ) -> Dict[str, Any]:
+        """Analyse avec function calling / tools - à implémenter par les providers qui le supportent"""
+        # Default implementation: appelle analyze_with_reasoning sans tools
+        return self.analyze_with_reasoning(prompt)
 
 
 class OpenAIProvider(LLMProvider):
@@ -96,6 +107,94 @@ class OpenAIProvider(LLMProvider):
             return result
         except Exception as e:
             raise Exception(f"Erreur lors de l'appel à OpenAI (reasoning): {str(e)}")
+    
+    def analyze_with_tools(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        tool_executor: Callable[[str, Dict[str, Any]], Dict[str, Any]],
+        max_iterations: int = 5
+    ) -> Dict[str, Any]:
+        """Analyse avec function calling"""
+        try:
+            messages = [
+                {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN. Tu as accès à des outils pour récupérer des informations depuis des PDFs de release notes."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            tool_calls_log = []
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                
+                # Appel avec tools
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto"
+                )
+                
+                message = response.choices[0].message
+                messages.append(message)
+                
+                # Check si le modèle veut appeler des tools
+                if message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        # Exécuter le tool
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        
+                        tool_calls_log.append({
+                            "iteration": iteration,
+                            "tool": function_name,
+                            "arguments": function_args
+                        })
+                        
+                        # Exécuter la fonction
+                        function_result = tool_executor(function_name, function_args)
+                        
+                        # Ajouter le résultat aux messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": json.dumps(function_result, ensure_ascii=False)
+                        })
+                else:
+                    # Pas de tool calls, on a la réponse finale
+                    content = message.content
+                    
+                    # Essayer de parser le JSON
+                    try:
+                        result = json.loads(content)
+                    except:
+                        import re
+                        json_match = re.search(r'```json\s*({.*?})\s*```', content, re.DOTALL)
+                        if json_match:
+                            result = json.loads(json_match.group(1))
+                        else:
+                            try:
+                                result = json.loads(content)
+                            except:
+                                result = {"reasoning": content, "steps": []}
+                    
+                    # Ajouter les tool calls au résultat
+                    result["tool_calls_made"] = tool_calls_log
+                    result["iterations"] = iteration
+                    
+                    return result
+            
+            # Max iterations atteintes
+            return {
+                "error": "Max iterations reached",
+                "tool_calls_made": tool_calls_log,
+                "iterations": iteration
+            }
+            
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à OpenAI (tools): {str(e)}")
 
 
 class GrokProvider(LLMProvider):
@@ -263,7 +362,7 @@ class GeminiProvider(LLMProvider):
 class GroqProvider(LLMProvider):
     """Provider pour Groq (inférence rapide)"""
     
-    def __init__(self, api_key: str, model: str = "llama-3.1-70b-versatile"):
+    def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
         super().__init__(api_key)
         from openai import OpenAI
         # Groq utilise l'API compatible OpenAI
@@ -345,6 +444,94 @@ class GroqProvider(LLMProvider):
             return result
         except Exception as e:
             raise Exception(f"Erreur lors de l'appel à Groq (reasoning): {str(e)}")
+    
+    def analyze_with_tools(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+        tool_executor: Callable[[str, Dict[str, Any]], Dict[str, Any]],
+        max_iterations: int = 5
+    ) -> Dict[str, Any]:
+        """Analyse avec function calling (Groq supporte tools)"""
+        try:
+            messages = [
+                {"role": "system", "content": "Tu es un expert en infrastructure SD-WAN. Tu as accès à des outils pour récupérer des informations depuis des PDFs de release notes."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            tool_calls_log = []
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                
+                # Appel avec tools
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto"
+                )
+                
+                message = response.choices[0].message
+                messages.append(message)
+                
+                # Check si le modèle veut appeler des tools
+                if message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        # Exécuter le tool
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        
+                        tool_calls_log.append({
+                            "iteration": iteration,
+                            "tool": function_name,
+                            "arguments": function_args
+                        })
+                        
+                        # Exécuter la fonction
+                        function_result = tool_executor(function_name, function_args)
+                        
+                        # Ajouter le résultat aux messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": json.dumps(function_result, ensure_ascii=False)
+                        })
+                else:
+                    # Pas de tool calls, on a la réponse finale
+                    content = message.content
+                    
+                    # Essayer de parser le JSON
+                    try:
+                        result = json.loads(content)
+                    except:
+                        import re
+                        json_match = re.search(r'```json\s*({.*?})\s*```', content, re.DOTALL)
+                        if json_match:
+                            result = json.loads(json_match.group(1))
+                        else:
+                            try:
+                                result = json.loads(content)
+                            except:
+                                result = {"reasoning": content, "steps": []}
+                    
+                    # Ajouter les tool calls au résultat
+                    result["tool_calls_made"] = tool_calls_log
+                    result["iterations"] = iteration
+                    
+                    return result
+            
+            # Max iterations atteintes
+            return {
+                "error": "Max iterations reached",
+                "tool_calls_made": tool_calls_log,
+                "iterations": iteration
+            }
+            
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'appel à Groq (tools): {str(e)}")
 
 
 def get_llm_provider() -> LLMProvider:
