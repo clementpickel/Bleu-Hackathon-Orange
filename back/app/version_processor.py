@@ -2,7 +2,7 @@ import os
 from pypdf import PdfReader
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
-from app.models import ProductModel, GatewayVersion, EdgeVersion
+from app.models import ProductModel, GatewayVersion, EdgeVersion, OrchestratorVersion
 from app.llm_provider import get_llm_provider
 
 
@@ -25,42 +25,62 @@ def extract_gateway_edge_info(text: str, filename: str) -> Dict[str, Any]:
     prompt = f"""
 Analyse le texte suivant extrait d'un PDF sur des produits SD-WAN (VeloCloud/Arista) et extrait les informations au format JSON.
 
-Le document peut contenir des informations sur:
-- Des versions de logiciel Gateway
-- Des modèles d'Edge (équipements physiques)
-- Des dates de fin de vie (End of Life)
-- Des dates de fin de support
+IMPORTANT: Il existe 3 types de software distincts (UN seul software par type):
+- Gateway: logiciel pour passerelles/gateways
+- Edge: logiciel pour équipements edge
+- Orchestrator (VCO): logiciel pour contrôleur/orchestrateur
+
+Pour chaque type, extrait UNIQUEMENT le numéro de version (ex: "6.4.0", "5.2.1").
+NE PAS inclure le nom du produit dans la version.
+
+Exemples CORRECTS:
+- Version: "6.4.0" ✓
+- Version: "5.2.1" ✓
+
+Exemples INCORRECTS:
+- Version: "VeloCloud Gateway v6.4.0" ✗
+- Version: "Edge 510 v5.2.1" ✗
 
 Extrait les informations suivantes au format JSON:
 
 {{
-  "document_type": "gateway_version" | "edge_model" | "lifecycle" | "release_notes",
+  "document_type": "gateway_version" | "edge_version" | "orchestrator_version" | "lifecycle" | "release_notes",
   "gateways": [
     {{
-      "model": "VeloCloud Gateway",
-      "version": "version du logiciel",
-      "release_date": "date de release",
-      "end_of_life_date": "date de fin de vie si mentionnée",
-      "end_of_support_date": "date de fin de support si mentionnée",
+      "version": "X.Y.Z uniquement, sans nom de produit",
+      "document_date": "date de publication du document/PDF au format DD/MM/YYYY (chercher 'Last Updated', 'Published', 'Document Date')",
+      "release_date": "date de release de cette version software au format DD/MM/YYYY",
+      "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
+      "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
       "is_end_of_life": true/false,
       "status": "Active|Deprecated|End of Life",
       "features": ["liste des fonctionnalités"],
-      "alternatives": ["liste des produits alternatifs recommandés en remplacement"],
       "notes": "notes importantes"
     }}
   ],
   "edges": [
     {{
-      "model": "nom du modèle Edge (ex: Edge 510, Edge 840)",
-      "version": "version firmware/software",
-      "release_date": "date de release",
-      "end_of_life_date": "date de fin de vie si mentionnée",
-      "end_of_support_date": "date de fin de support si mentionnée",
+      "version": "X.Y.Z uniquement, sans nom de produit",
+      "document_date": "date de publication du document/PDF au format DD/MM/YYYY",
+      "release_date": "date de release de cette version software au format DD/MM/YYYY",
+      "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
+      "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
       "is_end_of_life": true/false,
       "status": "Active|Deprecated|End of Life",
       "features": ["liste des fonctionnalités"],
-      "hardware_specs": {{"specs matérielles si disponibles"}},
-      "alternatives": ["liste des produits alternatifs recommandés en remplacement"],
+      "notes": "notes importantes"
+    }}
+  ],
+  "orchestrators": [
+    {{
+      "version": "X.Y.Z uniquement, sans nom de produit",
+      "document_date": "date de publication du document/PDF au format DD/MM/YYYY",
+      "release_date": "date de release de cette version software au format DD/MM/YYYY",
+      "end_of_life_date": "date de fin de vie au format DD/MM/YYYY si mentionnée",
+      "end_of_support_date": "date de fin de support au format DD/MM/YYYY si mentionnée",
+      "is_end_of_life": true/false,
+      "status": "Active|Deprecated|End of Life",
+      "features": ["liste des fonctionnalités"],
       "notes": "notes importantes"
     }}
   ],
@@ -70,7 +90,11 @@ Extrait les informations suivantes au format JSON:
   }}
 }}
 
-Si une information n'est pas disponible, utilise null. Si le document ne contient pas de gateways ou edges, laisse les listes vides.
+IMPORTANT - FORMAT DES DATES:
+TOUTES les dates doivent être au format DD/MM/YYYY (jour/mois/année).
+Exemples: "15/03/2025", "01/12/2026", "30/06/2024"
+
+Si une information n'est pas disponible, utilise null. Si le document ne contient pas de gateways, edges ou orchestrators, laisse les listes vides.
 
 Nom du fichier: {filename}
 
@@ -84,7 +108,7 @@ Réponds uniquement avec le JSON, sans texte additionnel.
 
 
 def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> Dict[str, Any]:
-    """Traite un PDF et stocke les informations de Gateway et Edge dans la base de données"""
+    """Traite un PDF et stocke les informations de Gateway, Edge et Orchestrator dans la base de données"""
     # Extraire le texte
     text = extract_text_from_pdf(pdf_path)
     
@@ -94,22 +118,31 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
     results = {
         "gateways": [],
         "edges": [],
+        "orchestrators": [],
         "filename": filename
     }
     
     # Traiter les Gateways
     gateways = extracted_data.get("gateways", [])
     for gw in gateways:
+        version = gw.get("version")
+        if not version or version == "Unknown":
+            continue
+            
+        # Vérifier si la version existe déjà
+        existing = db.query(GatewayVersion).filter(GatewayVersion.version == version).first()
+        if existing:
+            continue
+            
         gateway = GatewayVersion(
-            gateway_model=gw.get("model", "Unknown"),
-            version=gw.get("version") or "Unknown",
+            version=version,
+            document_date=gw.get("document_date"),
             release_date=gw.get("release_date"),
             end_of_life_date=gw.get("end_of_life_date"),
             end_of_support_date=gw.get("end_of_support_date"),
             is_end_of_life=gw.get("is_end_of_life", False),
             status=gw.get("status"),
             features=gw.get("features"),
-            alternatives=gw.get("alternatives"),
             notes=gw.get("notes"),
             source_file=filename,
             raw_data=gw
@@ -120,17 +153,24 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
     # Traiter les Edges
     edges = extracted_data.get("edges", [])
     for ed in edges:
+        version = ed.get("version")
+        if not version or version == "Unknown":
+            continue
+            
+        # Vérifier si la version existe déjà
+        existing = db.query(EdgeVersion).filter(EdgeVersion.version == version).first()
+        if existing:
+            continue
+            
         edge = EdgeVersion(
-            edge_model=ed.get("model", "Unknown"),
-            version=ed.get("version") or "Unknown",
+            version=version,
+            document_date=ed.get("document_date"),
             release_date=ed.get("release_date"),
             end_of_life_date=ed.get("end_of_life_date"),
             end_of_support_date=ed.get("end_of_support_date"),
             is_end_of_life=ed.get("is_end_of_life", False),
             status=ed.get("status"),
             features=ed.get("features"),
-            hardware_specs=ed.get("hardware_specs"),
-            alternatives=ed.get("alternatives"),
             notes=ed.get("notes"),
             source_file=filename,
             raw_data=ed
@@ -138,16 +178,45 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
         db.add(edge)
         results["edges"].append(edge)
     
+    # Traiter les Orchestrators
+    orchestrators = extracted_data.get("orchestrators", [])
+    for orch in orchestrators:
+        version = orch.get("version")
+        if not version or version == "Unknown":
+            continue
+            
+        # Vérifier si la version existe déjà
+        existing = db.query(OrchestratorVersion).filter(OrchestratorVersion.version == version).first()
+        if existing:
+            continue
+            
+        orchestrator = OrchestratorVersion(
+            version=version,
+            document_date=orch.get("document_date"),
+            release_date=orch.get("release_date"),
+            end_of_life_date=orch.get("end_of_life_date"),
+            end_of_support_date=orch.get("end_of_support_date"),
+            is_end_of_life=orch.get("is_end_of_life", False),
+            status=orch.get("status"),
+            features=orch.get("features"),
+            notes=orch.get("notes"),
+            source_file=filename,
+            raw_data=orch
+        )
+        db.add(orchestrator)
+        results["orchestrators"].append(orchestrator)
+    
     db.commit()
     
     return results
 
 
 def process_all_pdfs_gateway_edge(assets_dir: str, db: Session) -> Dict[str, Any]:
-    """Traite tous les PDFs pour extraire les informations Gateway et Edge"""
+    """Traite tous les PDFs pour extraire les informations Gateway, Edge et Orchestrator"""
     results = {
         "total_gateways": 0,
         "total_edges": 0,
+        "total_orchestrators": 0,
         "processed_files": [],
         "errors": []
     }
@@ -163,10 +232,12 @@ def process_all_pdfs_gateway_edge(assets_dir: str, db: Session) -> Dict[str, Any
             file_results = process_pdf_with_gateway_edge(pdf_path, pdf_file, db)
             results["total_gateways"] += len(file_results["gateways"])
             results["total_edges"] += len(file_results["edges"])
+            results["total_orchestrators"] += len(file_results["orchestrators"])
             results["processed_files"].append({
                 "filename": pdf_file,
                 "gateways": len(file_results["gateways"]),
-                "edges": len(file_results["edges"])
+                "edges": len(file_results["edges"]),
+                "orchestrators": len(file_results["orchestrators"])
             })
         except Exception as e:
             error_msg = f"Erreur lors du traitement de {pdf_file}: {str(e)}"

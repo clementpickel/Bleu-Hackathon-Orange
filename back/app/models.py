@@ -18,6 +18,7 @@ class ProductModel(Base):
     functionalities = Column(JSON, nullable=True)  # Fonctionnalités principales
     alternatives = Column(JSON, nullable=True)  # Produits alternatifs recommandés
     release_date = Column(String(100), nullable=True)
+    document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
     description = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     source_file = Column(String(255), nullable=True)  # Nom du PDF source
@@ -30,19 +31,18 @@ class ProductModel(Base):
 
 
 class GatewayVersion(Base):
-    """Table pour les versions de Gateway SD-WAN"""
+    """Table pour les versions de Gateway SD-WAN (software uniquement)"""
     __tablename__ = "gateway_versions"
 
     id = Column(Integer, primary_key=True, index=True)
-    gateway_model = Column(String(255), nullable=False, index=True)
-    version = Column(String(100), nullable=True, index=True)
+    version = Column(String(100), nullable=False, index=True, unique=True)
     release_date = Column(String(100), nullable=True)
     end_of_life_date = Column(String(100), nullable=True)
     end_of_support_date = Column(String(100), nullable=True)
     is_end_of_life = Column(Boolean, default=False)
     status = Column(String(50), nullable=True)  # Active, Deprecated, End of Life
     features = Column(JSON, nullable=True)
-    alternatives = Column(JSON, nullable=True)  # Produits alternatifs recommandés
+    document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
     notes = Column(Text, nullable=True)
     source_file = Column(String(255), nullable=True)
     raw_data = Column(JSON, nullable=True)
@@ -50,24 +50,22 @@ class GatewayVersion(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def __repr__(self):
-        return f"<GatewayVersion(model={self.gateway_model}, version={self.version}, eol={self.end_of_life_date})>"
+        return f"<GatewayVersion(version={self.version}, eol={self.end_of_life_date})>"
 
 
 class EdgeVersion(Base):
-    """Table pour les versions d'Edge SD-WAN"""
+    """Table pour les versions d'Edge SD-WAN (software uniquement)"""
     __tablename__ = "edge_versions"
 
     id = Column(Integer, primary_key=True, index=True)
-    edge_model = Column(String(255), nullable=False, index=True)
-    version = Column(String(100), nullable=True, index=True)
+    version = Column(String(100), nullable=False, index=True, unique=True)
     release_date = Column(String(100), nullable=True)
     end_of_life_date = Column(String(100), nullable=True)
     end_of_support_date = Column(String(100), nullable=True)
     is_end_of_life = Column(Boolean, default=False)
     status = Column(String(50), nullable=True)  # Active, Deprecated, End of Life
     features = Column(JSON, nullable=True)
-    hardware_specs = Column(JSON, nullable=True)
-    alternatives = Column(JSON, nullable=True)  # Produits alternatifs recommandés
+    document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
     notes = Column(Text, nullable=True)
     source_file = Column(String(255), nullable=True)
     raw_data = Column(JSON, nullable=True)
@@ -75,4 +73,27 @@ class EdgeVersion(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def __repr__(self):
-        return f"<EdgeVersion(model={self.edge_model}, version={self.version}, eol={self.end_of_life_date})>"
+        return f"<EdgeVersion(version={self.version}, eol={self.end_of_life_date})>"
+
+
+class OrchestratorVersion(Base):
+    """Table pour les versions d'Orchestrator/VCO SD-WAN (software uniquement)"""
+    __tablename__ = "orchestrator_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String(100), nullable=False, index=True, unique=True)
+    release_date = Column(String(100), nullable=True)
+    end_of_life_date = Column(String(100), nullable=True)
+    end_of_support_date = Column(String(100), nullable=True)
+    is_end_of_life = Column(Boolean, default=False)
+    status = Column(String(50), nullable=True)  # Active, Deprecated, End of Life
+    features = Column(JSON, nullable=True)
+    document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
+    notes = Column(Text, nullable=True)
+    source_file = Column(String(255), nullable=True)
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<OrchestratorVersion(version={self.version}, eol={self.end_of_life_date})>"

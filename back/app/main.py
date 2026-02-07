@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import init_db, get_db
-from app.models import ProductModel, GatewayVersion, EdgeVersion
+from app.models import ProductModel, GatewayVersion, EdgeVersion, OrchestratorVersion
 from app.pdf_processor import process_all_pdfs
 from app.version_processor import process_all_pdfs_gateway_edge
 from typing import List
@@ -81,6 +82,7 @@ async def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(ge
         {
             "id": p.id,
             "model_name": p.model_name,
+            "document_date": p.document_date,
             "is_end_of_life": p.is_end_of_life,
             "end_of_life_date": p.end_of_life_date,
             "end_of_support_date": p.end_of_support_date,
@@ -138,12 +140,13 @@ async def delete_product(product_id: int, db: Session = Depends(get_db)):
 @app.post("/process-versions", tags=["PDF Processing", "Versions"])
 async def process_versions(db: Session = Depends(get_db)):
     """
-    Traite tous les PDFs pour extraire les versions Gateway et Edge avec dates EOL
+    Traite tous les PDFs pour extraire les versions Gateway, Edge et Orchestrator avec dates EOL
     
     Extrait spécifiquement:
-    - Versions de Gateway avec dates de fin de vie
-    - Modèles d'Edge avec dates de fin de vie
-    - Statuts (Active, Deprecated, End of Life)
+    - Versions de Gateway (software uniquement)
+    - Versions d'Edge (software uniquement)
+    - Versions d'Orchestrator/VCO (software uniquement)
+    - Dates de fin de vie et statuts
     """
     try:
         assets_dir = "/app/assets"
@@ -154,16 +157,17 @@ async def process_versions(db: Session = Depends(get_db)):
         if not pdf_files:
             raise HTTPException(status_code=404, detail="Aucun fichier PDF trouvé dans le dossier assets")
         
-        # Traiter les PDFs pour Gateway/Edge
+        # Traiter les PDFs
         results = process_all_pdfs_gateway_edge(assets_dir, db)
         
         return {
             "status": "success",
             "total_gateways": results["total_gateways"],
             "total_edges": results["total_edges"],
+            "total_orchestrators": results["total_orchestrators"],
             "processed_files": results["processed_files"],
             "errors": results["errors"],
-            "message": f"{results['total_gateways']} gateways et {results['total_edges']} edges extraits"
+            "message": f"{results['total_gateways']} gateways, {results['total_edges']} edges, {results['total_orchestrators']} orchestrators extraits"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement: {str(e)}")
@@ -172,7 +176,7 @@ async def process_versions(db: Session = Depends(get_db)):
 @app.get("/gateways", response_model=List[dict], tags=["Versions"])
 async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, db: Session = Depends(get_db)):
     """
-    Récupère la liste des versions Gateway
+    Récupère la liste des versions Gateway (software uniquement)
     
     - eol_only: si True, retourne uniquement les versions en fin de vie
     """
@@ -184,15 +188,14 @@ async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, 
     return [
         {
             "id": g.id,
-            "gateway_model": g.gateway_model,
             "version": g.version,
+            "document_date": g.document_date,
             "release_date": g.release_date,
             "end_of_life_date": g.end_of_life_date,
             "end_of_support_date": g.end_of_support_date,
             "is_end_of_life": g.is_end_of_life,
             "status": g.status,
             "features": g.features,
-            "alternatives": g.alternatives,
             "notes": g.notes,
             "source_file": g.source_file,
             "created_at": g.created_at.isoformat() if g.created_at else None
@@ -204,7 +207,7 @@ async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, 
 @app.get("/edges", response_model=List[dict], tags=["Versions"])
 async def get_edges(skip: int = 0, limit: int = 100, eol_only: bool = False, db: Session = Depends(get_db)):
     """
-    Récupère la liste des versions Edge
+    Récupère la liste des versions Edge (software uniquement)
     
     - eol_only: si True, retourne uniquement les versions en fin de vie
     """
@@ -216,21 +219,50 @@ async def get_edges(skip: int = 0, limit: int = 100, eol_only: bool = False, db:
     return [
         {
             "id": e.id,
-            "edge_model": e.edge_model,
             "version": e.version,
+            "document_date": e.document_date,
             "release_date": e.release_date,
             "end_of_life_date": e.end_of_life_date,
             "end_of_support_date": e.end_of_support_date,
             "is_end_of_life": e.is_end_of_life,
             "status": e.status,
             "features": e.features,
-            "hardware_specs": e.hardware_specs,
-            "alternatives": e.alternatives,
             "notes": e.notes,
             "source_file": e.source_file,
             "created_at": e.created_at.isoformat() if e.created_at else None
         }
         for e in edges
+    ]
+
+
+@app.get("/orchestrators", response_model=List[dict], tags=["Versions"])
+async def get_orchestrators(skip: int = 0, limit: int = 100, eol_only: bool = False, db: Session = Depends(get_db)):
+    """
+    Récupère la liste des versions Orchestrator/VCO (software uniquement)
+    
+    - eol_only: si True, retourne uniquement les versions en fin de vie
+    """
+    query = db.query(OrchestratorVersion)
+    if eol_only:
+        query = query.filter(OrchestratorVersion.is_end_of_life == True)
+    
+    orchestrators = query.offset(skip).limit(limit).all()
+    return [
+        {
+            "id": o.id,
+            "version": o.version,
+            "document_date": o.document_date,
+            "release_date": o.release_date,
+            "end_of_life_date": o.end_of_life_date,
+            "end_of_support_date": o.end_of_support_date,
+            "is_end_of_life": o.is_end_of_life,
+            "status": o.status,
+            "features": o.features,
+            "notes": o.notes,
+            "source_file": o.source_file,
+            "created_at": o.created_at.isoformat() if o.created_at else None
+        }
+        for o in orchestrators
     ]
 
 
@@ -245,6 +277,9 @@ async def get_eol_summary(db: Session = Depends(get_db)):
     total_edges = db.query(EdgeVersion).count()
     eol_edges = db.query(EdgeVersion).filter(EdgeVersion.is_end_of_life == True).count()
     
+    total_orchestrators = db.query(OrchestratorVersion).count()
+    eol_orchestrators = db.query(OrchestratorVersion).filter(OrchestratorVersion.is_end_of_life == True).count()
+    
     return {
         "gateways": {
             "total": total_gateways,
@@ -255,5 +290,10 @@ async def get_eol_summary(db: Session = Depends(get_db)):
             "total": total_edges,
             "end_of_life": eol_edges,
             "active": total_edges - eol_edges
+        },
+        "orchestrators": {
+            "total": total_orchestrators,
+            "end_of_life": eol_orchestrators,
+            "active": total_orchestrators - eol_orchestrators
         }
     }
