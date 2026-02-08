@@ -59,6 +59,7 @@ Extrait les informations suivantes au format JSON:
       "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
       "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "features": ["liste des fonctionnalités"],
+      "upgrade_instructions": ["liste d'instructions importantes pour l'upgrade: pré-requis, dépendances, versions ESXi requises, versions Gateway/Edge/Orchestrator nécessaires, etc."],
       "notes": "notes importantes"
     }}
   ],
@@ -72,6 +73,7 @@ Extrait les informations suivantes au format JSON:
       "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
       "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "features": ["liste des fonctionnalités"],
+      "upgrade_instructions": ["liste d'instructions importantes pour l'upgrade: depuis quelle version peut-on upgrader, versions Gateway requises, pré-requis, etc."],
       "notes": "notes importantes"
     }}
   ],
@@ -85,6 +87,7 @@ Extrait les informations suivantes au format JSON:
       "is_end_of_life": true/false (calculer automatiquement: true si end_of_life_date < DATE ACTUELLE, false sinon),
       "status": "Active|Deprecated|End of Life (déterminer en fonction de is_end_of_life)",
       "features": ["liste des fonctionnalités"],
+      "upgrade_instructions": ["liste d'instructions importantes pour l'upgrade: versions Gateway/Edge compatibles, pré-requis, dépendances, etc."],
       "notes": "notes importantes"
     }}
   ],
@@ -147,6 +150,7 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
             is_end_of_life=gw.get("is_end_of_life", False),
             status=gw.get("status"),
             features=gw.get("features"),
+            upgrade_instructions=gw.get("upgrade_instructions"),
             notes=gw.get("notes"),
             source_file=filename,
             raw_data=gw
@@ -175,6 +179,7 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
             is_end_of_life=ed.get("is_end_of_life", False),
             status=ed.get("status"),
             features=ed.get("features"),
+            upgrade_instructions=ed.get("upgrade_instructions"),
             notes=ed.get("notes"),
             source_file=filename,
             raw_data=ed
@@ -203,6 +208,7 @@ def process_pdf_with_gateway_edge(pdf_path: str, filename: str, db: Session) -> 
             is_end_of_life=orch.get("is_end_of_life", False),
             status=orch.get("status"),
             features=orch.get("features"),
+            upgrade_instructions=orch.get("upgrade_instructions"),
             notes=orch.get("notes"),
             source_file=filename,
             raw_data=orch

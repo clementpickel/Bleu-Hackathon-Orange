@@ -44,6 +44,7 @@ class GatewayVersion(Base):
     status = Column(String(50), nullable=True)  # Active, Deprecated, End of Life
     features = Column(JSON, nullable=True)
     document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
+    upgrade_instructions = Column(JSON, nullable=True)  # Liste d'instructions pour l'upgrade
     notes = Column(Text, nullable=True)
     source_file = Column(String(255), nullable=True)
     raw_data = Column(JSON, nullable=True)
@@ -67,6 +68,7 @@ class EdgeVersion(Base):
     status = Column(String(50), nullable=True)  # Active, Deprecated, End of Life
     features = Column(JSON, nullable=True)
     document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
+    upgrade_instructions = Column(JSON, nullable=True)  # Liste d'instructions pour l'upgrade
     notes = Column(Text, nullable=True)
     source_file = Column(String(255), nullable=True)
     raw_data = Column(JSON, nullable=True)
@@ -90,6 +92,7 @@ class OrchestratorVersion(Base):
     status = Column(String(50), nullable=True)  # Active, Deprecated, End of Life
     features = Column(JSON, nullable=True)
     document_date = Column(String(100), nullable=True)  # Date de publication du document PDF
+    upgrade_instructions = Column(JSON, nullable=True)  # Liste d'instructions pour l'upgrade
     notes = Column(Text, nullable=True)
     source_file = Column(String(255), nullable=True)
     raw_data = Column(JSON, nullable=True)
