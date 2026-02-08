@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-gray-50 text-black;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
