@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import init_db, get_db
@@ -7,10 +8,11 @@ from app.pdf_processor import process_all_pdfs
 from app.version_processor import process_all_pdfs_gateway_edge
 from app.llm_provider import get_llm_provider, get_analysis_llm_provider
 from app.pdf_tools import PDF_RETRIEVAL_TOOLS, execute_pdf_tool, list_available_pdfs
-from typing import List
+from typing import List, Any
 from pydantic import BaseModel
 from datetime import datetime
 import os
+import json
 
 app = FastAPI(
     title="Bleu Hackathon Orange API",
@@ -18,6 +20,15 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/swagger",
     redoc_url="/redoc",
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -685,17 +696,41 @@ UTILISE CES OUTILS pour:
 
 === RÈGLES IMPORTANTES ===
 1. **DÉPENDANCES**: Edge dépend de Gateway, Gateway dépend d'Orchestrator
-2. **ORDRE OBLIGATOIRE**: Orchestrator PUIS Gateway PUIS Edge
-3. **PATTERNS DE VERSIONS**: Les instructions pour "5.X" s'appliquent à toutes les versions 5.x
-4. **COMPATIBILITÉ**: Vérifier que chaque composant est compatible avec les autres
-5. **PRÉ-REQUIS**: ESXi, dépendances système, versions minimales requises
-6. **HARDWARE**: Considérer les appliances physiques ET software (VM) et leurs EOL
-7. **UTILISER LES PDFS**: Récupère les informations détaillées depuis les PDFs sources
-8. **⚠️ UPGRADES MULTI-ÉTAPES CRITIQUES**: Les sauts de version directs ne sont PAS toujours possibles!
-   - Un upgrade de 4.5.0 → 6.4.0 peut nécessiter des étapes intermédiaires (ex: 4.5.0 → 5.2.0 → 6.0.0 → 6.4.0)
+2. **COMPATIBILITÉ**: Vérifier que chaque composant est compatible avec les autres
+3. **PRÉ-REQUIS**: ESXi, dépendances système, versions minimales requises
+4. **UTILISER LES PDFS**: Récupère les informations détaillées depuis les PDFs sources
+5. **NE PAS UTILISER** les version RXXXX-YYYYMMDD-GA
+6. **⚠️ UPGRADES MULTI-ÉTAPES CRITIQUES**: Les sauts de version directs ne sont RAREMENT possibles!
+   - Un upgrade de 1.8.0 → 3.2.0 peut nécessiter des étapes intermédiaires (ex: 1.8.0 → 2.0.0 → 3.0.0 → 3.2.0)
    - TOUJOURS vérifier dans les PDFs si des versions intermédiaires sont requises
    - Identifier TOUTES les versions de passage nécessaires pour maintenir la compatibilité
    - Respecter les chemins d'upgrade recommandés par le fabricant
+
+=== 🛡️ ÉTAPE DE PLANNING ET VALIDATION (CRITIQUE) ===
+**AVANT de commencer la consultation des PDFs**, tu DOIS effectuer une analyse de faisabilité:
+
+1. **PHASE DE PLANNING INITIAL** (avant consultation PDFs):
+   - Analyser l'écart de versions entre current et target pour chaque composant
+   - Identifier les sauts de versions majeurs (ex: 4.x → 6.x) qui nécessitent forcément des étapes intermédiaires
+   - Vérifier que les versions actuelles peuvent "survivre" pendant l'upgrade des autres composants
+   - ⚠️ **RISQUE CRITIQUE**: Un Edge 4.x peut perdre la connectivité si l'Orchestrator passe directement en 6.x
+
+2. **VALIDATION DE COMPATIBILITÉ À CHAQUE ÉTAPE**:
+   - Après chaque étape d'upgrade planifiée, vérifier que TOUS les composants restent compatibles
+   - Exemple: Si Orchestrator passe de 5.2 → 6.0, vérifier que Edge 4.2 peut toujours communiquer
+   - Si incompatibilité détectée, AJOUTER des étapes intermédiaires pour maintenir la compatibilité
+   - Utiliser les PDFs pour confirmer les matrices de compatibilité
+
+3. **CONTRÔLE FINAL DE FAISABILITÉ** (après génération du plan):
+   - Valider que la procédure complète est réalisable sans perte de connectivité
+   - Vérifier que chaque étape respecte les prérequis des étapes précédentes
+   - S'assurer qu'aucun composant ne se retrouve isolé pendant le processus
+   - Confirmer que l'ordre Orchestrator → Gateway → Edge est maintenu avec compatibilité garantie
+
+**STRATÉGIE DE SÉCURITÉ**:
+- Privilégier les upgrades progressives et coordonnées (tous les composants avancent ensemble)
+- Si un composant est trop ancien, le faire progresser AVANT d'upgrader les autres
+- Exemple: Si Edge est en 4.x et Orchestrator/Gateway en 5.x, upgrade Edge vers 5.x AVANT de monter Orchestrator/Gateway vers 6.x
 
 === TÂCHE ===
 Génère un guide d'upgrade CONCIS en format TEXTE avec UNE SEULE section:
@@ -705,23 +740,23 @@ Génère un guide d'upgrade CONCIS en format TEXTE avec UNE SEULE section:
 ⚠️ **FORMAT REQUIS**: Liste numérotée UNIQUEMENT, une ligne par upgrade
 
 EXEMPLE DU FORMAT ATTENDU:
-1. Mettre à jour l'Orchestrator de la version 5.2.0 à la version 5.4.0.
-2. Mettre à jour l'Orchestrator de la version 5.4.0 à la version 6.0.0.
-3. Mettre à jour le Gateway de la version 5.0.1 à la version 5.4.0.
-4. Mettre à jour l'Edge de la version 4.2.2 à la version 5.0.0.
-5. Mettre à jour le Gateway de la version 5.4.0 à la version 6.0.0.
-6. Mettre à jour l'Edge de la version 5.0.0 à la version 6.0.0.
-7. Mettre à jour l'Orchestrator de la version 6.0.0 à la version 6.4.0.
-8. Mettre à jour le Gateway de la version 6.0.0 à la version 6.4.0.
-9. Mettre à jour l'Edge de la version 6.0.0 à la version 6.4.0.
+1. Mettre à jour l'Orchestrator de la version 2.1.0 à la version 2.5.0.
+2. Mettre à jour l'Orchestrator de la version 2.5.0 à la version 3.0.0.
+3. Mettre à jour le Gateway de la version 2.0.0 à la version 2.5.0.
+4. Mettre à jour l'Edge de la version 1.8.0 à la version 2.0.0.
+5. Mettre à jour le Gateway de la version 2.5.0 à la version 3.0.0.
+6. Mettre à jour l'Edge de la version 2.0.0 à la version 3.0.0.
+7. Mettre à jour l'Orchestrator de la version 3.0.0 à la version 3.2.0.
+8. Mettre à jour le Gateway de la version 3.0.0 à la version 3.2.0.
+9. Mettre à jour l'Edge de la version 3.0.0 à la version 3.2.0.
 
 **RÈGLES STRICTES**:
 - Format EXACT: "X. Mettre à jour le [Component] de la version [version actuelle] à la version [version cible]."
 - UNE SEULE ligne par étape d'upgrade
-- TOUJOURS respecter l'ordre Orchestrator → Gateway → Edge
 - INCLURE TOUTES les versions intermédiaires nécessaires
 - PAS de descriptions, PAS de détails, SEULEMENT la liste numérotée
 - Utiliser "Orchestrator" (pas VCO), "Gateway", "Edge" dans les noms
+- Utiliser les noms complet des Edges (ex: "Edge 840") si mentionné dans les instructions d'upgrade
 - Terminer chaque ligne par un point
 
 **IMPORTANT**: 
@@ -737,19 +772,170 @@ EXEMPLE DU FORMAT ATTENDU:
 - Génère UNIQUEMENT la liste numérotée, sans explications supplémentaires
 """
         
-        # Utiliser analyze_with_tools
-        result = provider.analyze_with_tools(
-            prompt=prompt,
-            tools=PDF_RETRIEVAL_TOOLS,
-            tool_executor=tool_executor,
-            max_iterations=8  # Donner plus d'itérations pour consulter plusieurs PDFs
-        )
+        # Fonction de validation de la réponse
+        def validate_upgrade_plan(result: Any, components: dict) -> dict:
+            """
+            Valide que le plan d'upgrade répond aux critères de qualité et sécurité.
+            
+            Args:
+                result: Peut être un str ou un dict avec le contenu de la réponse
+                components: Dict des versions actuelles par composant
+            
+            Returns:
+                dict avec 'valid' (bool), 'comments' (list), 'score' (int 0-100)
+            """
+            comments = []
+            score = 100
+            
+            # Extraire le texte du résultat (peut être dict ou str)
+            text_result = ""
+            if isinstance(result, dict):
+                # Essayer d'extraire le texte depuis différents champs possibles
+                if 'reasoning' in result:
+                    text_result = str(result['reasoning'])
+                elif 'content' in result:
+                    text_result = str(result['content'])
+                elif 'result' in result:
+                    text_result = str(result['result'])
+                else:
+                    # Convertir tout le dict en string
+                    text_result = json.dumps(result, ensure_ascii=False)
+            else:
+                text_result = str(result)
+            
+            # Vérifier que la réponse contient des étapes numérotées
+            import re
+            steps = re.findall(r'^\d+\.\s+Mettre à jour', text_result, re.MULTILINE | re.IGNORECASE)
+            if len(steps) == 0:
+                comments.append("❌ CRITIQUE: Aucune étape d'upgrade numérotée trouvée")
+                score -= 50
+            else:
+                comments.append(f"✅ {len(steps)} étapes d'upgrade détectées")
+            
+            # Vérifier la présence des 3 composants dans le plan
+            has_orchestrator = bool(re.search(r'Orchestrator', text_result, re.IGNORECASE))
+            has_gateway = bool(re.search(r'Gateway', text_result, re.IGNORECASE))
+            has_edge = bool(re.search(r'Edge', text_result, re.IGNORECASE))
+            
+            if not has_orchestrator:
+                comments.append("⚠️ MANQUANT: Aucune mise à jour d'Orchestrator trouvée")
+                score -= 20
+            if not has_gateway:
+                comments.append("⚠️ MANQUANT: Aucune mise à jour de Gateway trouvée")
+                score -= 20
+            if not has_edge:
+                comments.append("⚠️ MANQUANT: Aucune mise à jour d'Edge trouvée")
+                score -= 20
+            
+            if has_orchestrator and has_gateway and has_edge:
+                comments.append("✅ Les 3 composants sont présents dans le plan")
+            
+            # Vérifier l'ordre des composants (Orchestrator avant Gateway avant Edge)
+            orchestrator_positions = [m.start() for m in re.finditer(r'Orchestrator', text_result, re.IGNORECASE)]
+            gateway_positions = [m.start() for m in re.finditer(r'Gateway', text_result, re.IGNORECASE)]
+            edge_positions = [m.start() for m in re.finditer(r'Edge(?!\s*\d)', text_result, re.IGNORECASE)]
+            
+            if orchestrator_positions and gateway_positions and edge_positions:
+                # Vérifier que le premier Orchestrator apparaît avant le premier Gateway
+                if orchestrator_positions[0] > gateway_positions[0]:
+                    comments.append("⚠️ ORDRE: Gateway mis à jour avant Orchestrator (ordre non respecté)")
+                    score -= 15
+                
+                # Vérifier que le premier Gateway apparaît avant le premier Edge
+                if gateway_positions[0] > edge_positions[0]:
+                    comments.append("⚠️ ORDRE: Edge mis à jour avant Gateway (ordre non respecté)")
+                    score -= 15
+            
+            # Vérifier la présence de versions dans les étapes
+            version_pattern = r'\d+\.\d+\.\d+'
+            versions_found = re.findall(version_pattern, text_result)
+            if len(versions_found) < 4:  # Au minimum 2 étapes avec from/to versions
+                comments.append("⚠️ VERSIONS: Peu de numéros de version détectés dans le plan")
+                score -= 10
+            else:
+                comments.append(f"✅ {len(versions_found)} références de version trouvées")
+            
+            # Vérifier que les versions actuelles sont présentes
+            for v in components.values():
+                if v and v not in text_result:
+                    comments.append(f"⚠️ Version actuelle {v} non trouvée dans le plan")
+                    score -= 5
+            
+            # Validation finale
+            is_valid = score >= 60  # Seuil minimum de 60/100
+            
+            if is_valid:
+                comments.append(f"✅ VALIDATION RÉUSSIE - Score: {score}/100")
+            else:
+                comments.append(f"❌ VALIDATION ÉCHOUÉE - Score: {score}/100 (minimum requis: 60)")
+            
+            return {
+                'valid': is_valid,
+                'comments': comments,
+                'score': score
+            }
+        
+        # Extraire les versions actuelles pour la validation
+        current_versions = {
+            v.component: v.current_version 
+            for v in request.versions
+        }
+        
+        # Boucle de retry avec validation
+        max_retries = 3
+        validation_results = []
+        
+        for attempt in range(max_retries):
+            # Générer le plan d'upgrade
+            result = provider.analyze_with_tools(
+                prompt=prompt,
+                tools=PDF_RETRIEVAL_TOOLS,
+                tool_executor=tool_executor,
+                max_iterations=8
+            )
+            
+            # Valider la réponse
+            validation = validate_upgrade_plan(result, current_versions)
+            validation_results.append({
+                'attempt': attempt + 1,
+                'validation': validation
+            })
+            
+            # Si la validation est réussie, arrêter
+            if validation['valid']:
+                return {
+                    "status": "success",
+                    "result": result,
+                    "prompt": prompt,
+                    "input_versions": [v.dict() for v in request.versions],
+                    "method": "function_calling_with_pdfs",
+                    "validation": validation,
+                    "attempts": attempt + 1,
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }
+            
+            # Sinon, ajouter un feedback au prompt pour le prochain essai
+            if attempt < max_retries - 1:
+                feedback = "\n\n=== ⚠️ FEEDBACK DE VALIDATION ===\n"
+                feedback += f"Tentative {attempt + 1} invalide (score: {validation['score']}/100):\n"
+                for comment in validation['comments']:
+                    feedback += f"  {comment}\n"
+                feedback += "\nRÉGÉNÈRE un plan d'upgrade en respectant STRICTEMENT le format demandé.\n"
+                prompt += feedback
+        
+        # Si après 3 tentatives, aucune validation réussie, retourner la meilleure tentative
+        best_validation = max(validation_results, key=lambda x: x['validation']['score'])
         
         return {
-            "status": "success",
+            "status": "partial_success",
             "result": result,
+            "prompt": prompt,
             "input_versions": [v.dict() for v in request.versions],
             "method": "function_calling_with_pdfs",
+            "validation": best_validation['validation'],
+            "attempts": max_retries,
+            "all_validations": validation_results,
+            "warning": f"Aucune tentative n'a atteint le score minimum (meilleur: {best_validation['validation']['score']}/100)",
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
         
