@@ -563,8 +563,45 @@ def get_llm_provider() -> LLMProvider:
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise Exception("GROQ_API_KEY n'est pas défini dans les variables d'environnement")
-        model = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
+        model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         return GroqProvider(api_key, model)
     
     else:
         raise Exception(f"Provider LLM non supporté: {provider_name}. Utilisez 'openai', 'grok', 'gemini' ou 'groq'")
+
+
+def get_analysis_llm_provider() -> LLMProvider:
+    """Factory pour obtenir le provider LLM configuré pour l'analyse avec reasoning + function calling"""
+    provider_name = os.getenv("ANALYSIS_LLM_PROVIDER", os.getenv("LLM_PROVIDER", "openai")).lower()
+    
+    if provider_name == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise Exception("OPENAI_API_KEY n'est pas défini dans les variables d'environnement")
+        model = os.getenv("ANALYSIS_LLM_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o"))
+        return OpenAIProvider(api_key, model)
+    
+    elif provider_name == "grok":
+        api_key = os.getenv("GROK_API_KEY")
+        if not api_key:
+            raise Exception("GROK_API_KEY n'est pas défini dans les variables d'environnement")
+        model = os.getenv("ANALYSIS_LLM_MODEL", os.getenv("GROK_MODEL", "grok-beta"))
+        return GrokProvider(api_key, model)
+    
+    elif provider_name == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise Exception("GEMINI_API_KEY n'est pas défini dans les variables d'environnement")
+        model = os.getenv("ANALYSIS_LLM_MODEL", os.getenv("GEMINI_MODEL", "gemini-1.5-pro"))
+        return GeminiProvider(api_key, model)
+    
+    elif provider_name == "groq":
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise Exception("GROQ_API_KEY n'est pas défini dans les variables d'environnement")
+        model = os.getenv("ANALYSIS_LLM_MODEL", os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
+        return GroqProvider(api_key, model)
+    
+    else:
+        raise Exception(f"Provider LLM non supporté: {provider_name}. Utilisez 'openai', 'grok', 'gemini' ou 'groq'")
+

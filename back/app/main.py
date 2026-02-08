@@ -5,7 +5,7 @@ from app.database import init_db, get_db
 from app.models import ProductModel, GatewayVersion, EdgeVersion, OrchestratorVersion
 from app.pdf_processor import process_all_pdfs
 from app.version_processor import process_all_pdfs_gateway_edge
-from app.llm_provider import get_llm_provider
+from app.llm_provider import get_llm_provider, get_analysis_llm_provider
 from app.pdf_tools import PDF_RETRIEVAL_TOOLS, execute_pdf_tool, list_available_pdfs
 from typing import List
 from pydantic import BaseModel
@@ -290,14 +290,25 @@ async def get_eol_summary(db: Session = Depends(get_db)):
 
 
 class VersionInfo(BaseModel):
-    """Modèle pour les informations de version"""
+    """Modèle pour les informations de version - Upgrade vers LTS automatique
+    
+    Args:
+        component: Type de composant (gateway, edge, orchestrator)
+        current_version: Version actuellement installée
+    """
     component: str  # gateway, edge, orchestrator
     current_version: str
-    target_version: str = None  # Optionnel
 
 
 class UpgradeAnalysisRequest(BaseModel):
-    """Requête pour l'analyse de chemin d'upgrade"""
+    """Requête pour l'analyse de chemin d'upgrade vers LTS
+    
+    **REQUIS**: Les 3 composants (orchestrator, gateway, edge) doivent être fournis
+    car l'écosystème SD-WAN est interdépendant.
+    
+    Stratégie LTS AUTOMATIQUE: Tous les composants sont automatiquement upgradés vers leur
+    dernière version stable non-EOL. Le système identifiera TOUTES les versions intermédiaires nécessaires.
+    """
     versions: List[VersionInfo]
 
 
@@ -469,47 +480,136 @@ IMPORTANT: Retourne UNIQUEMENT le JSON valide, sans markdown ni texte additionne
 @app.post("/analyze-upgrade-with-pdfs", tags=["Analysis"])
 async def analyze_upgrade_with_pdfs(request: UpgradeAnalysisRequest, db: Session = Depends(get_db)):
     """
-    Génère un guide d'upgrade TEXTE complet avec accès aux PDFs via function calling.
+    Génère un guide d'upgrade TEXTE complet pour upgrader TOUS les composants vers LTS.
+    
+    🎯 **OBJECTIF**: Upgrade de TOUS les composants vers leur version LTS (Long Term Support)
+    ⚠️ **IMPORTANT**: Il y aura TOUJOURS des étapes intermédiaires - pas de sauts directs!
+    🔗 **REQUIS**: Les 3 composants (orchestrator, gateway, edge) DOIVENT être fournis car ils sont interdépendants
     
     Cette version AVANCÉE permet au LLM de:
     - Lister les PDFs disponibles
-    - Récupérer le contenu des PDFs des versions cibles/voulues (target versions)
-    - Rechercher des informations dans les PDFs des versions cibles
+    - Récupérer le contenu des PDFs des versions LTS cibles
+    - Rechercher des informations sur les chemins d'upgrade supportés
     
     Le LLM génère un guide CLAIR et STRUCTURÉ étape par étape pour:
-    - Upgrader chaque hardware (appliances physiques et VMs)
-    - Assurer la compatibilité entre composants
+    - Upgrader TOUS les composants (appliances et VMs) vers leurs versions LTS
+    - Identifier TOUTES les versions intermédiaires obligatoires (pas de sauts directs!)
+    - Assurer la compatibilité entre composants à chaque étape
     - Respecter l'ordre des dépendances (Orchestrator → Gateway → Edge)
-    - Identifier les versions intermédiaires nécessaires
     - Fournir des instructions précises avec validation et rollback
     
-    Exemple de requête:
+    Exemple de requête (TOUS les composants requis):
     {
         "versions": [
-            {"component": "orchestrator", "current_version": "5.2.0", "target_version": "6.4.0"},
-            {"component": "gateway", "current_version": "5.4.0", "target_version": "6.4.0"},
-            {"component": "edge", "current_version": "4.5.0", "target_version": "6.4.0"}
+            {"component": "orchestrator", "current_version": "5.2.0"},
+            {"component": "gateway", "current_version": "5.4.0"},
+            {"component": "edge", "current_version": "4.5.0"}
         ]
     }
     
-    Retourne: Guide en format TEXTE avec sections structurées (résumé, compatibilité, 
-    risques, plan étape par étape, notes importantes).
+    **STRATÉGIE LTS AUTOMATIQUE**: 
+    - Tous les composants sont automatiquement upgradés vers leur dernière version LTS
+    - Exemple de sortie attendue:
+      1. Upgrade Orchestrator from 5.2.0 to 5.4.0
+      2. Upgrade Gateway from 5.4.0 to 5.6.0
+      3. Upgrade Edge from 4.5.0 to 5.0.0
+      4. Upgrade Orchestrator from 5.4.0 to 6.0.0
+      5. Upgrade Gateway from 5.6.0 to 6.2.0
+      6. Upgrade Orchestrator from 6.0.0 to 6.4.0 (LTS)
+      7. Upgrade Gateway from 6.2.0 to 6.4.0 (LTS)
+      8. Upgrade Edge from 5.0.0 to 6.4.0 (LTS)
     
-    Note: Les PDFs fournis sont ceux des versions cibles (target_version), pas des versions actuelles.
+    Retourne: Guide en format TEXTE avec liste numérotée des étapes + détails complets.
+    
+    Note: Les PDFs fournis sont ceux des versions LTS finales, pas des versions actuelles.
     """
     try:
         import re
-        provider = get_llm_provider()
+        provider = get_analysis_llm_provider()  # Use dedicated analysis provider with function calling
         current_date = datetime.now().strftime("%d/%m/%Y")
+        
+        # Validation: Vérifier que les 3 composants sont fournis (écosystème interdépendant)
+        components_provided = set()
+        invalid_components = []
+        
+        for v in request.versions:
+            component_lower = v.component.lower().strip()
+            
+            # Nettoyer les noms de composants courants
+            if "gateway" in component_lower or "gateaway" in component_lower:
+                components_provided.add("gateway")
+            elif "edge" in component_lower:
+                components_provided.add("edge")
+            elif "orchestrator" in component_lower or "vco" in component_lower:
+                components_provided.add("orchestrator")
+            else:
+                invalid_components.append(v.component)
+        
+        # Vérifier les composants invalides
+        if invalid_components:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Composant(s) invalide(s): {', '.join(invalid_components)}. "
+                       f"Utilisez uniquement: 'orchestrator', 'gateway', 'edge' (casse insensible). "
+                       f"Exemples corrects: 'edge' (pas 'Edge 840'), 'gateway' (pas 'Gateaway')"
+            )
+        
+        required_components = {"orchestrator", "gateway", "edge"}
+        
+        if not required_components.issubset(components_provided):
+            missing = required_components - components_provided
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Écosystème incomplet: Les composants suivants sont manquants: {', '.join(missing)}. "
+                       f"L'écosystème SD-WAN nécessite TOUS les composants (orchestrator, gateway, edge) car ils sont interdépendants. "
+                       f"Format requis: {{ \"versions\": [{{ \"component\": \"orchestrator\", \"current_version\": \"X.X.X\" }}, "
+                       f"{{ \"component\": \"gateway\", \"current_version\": \"X.X.X\" }}, "
+                       f"{{ \"component\": \"edge\", \"current_version\": \"X.X.X\" }}] }}"
+            )
         
         # Créer l'exécuteur de tools qui a accès à la DB
         def tool_executor(function_name: str, arguments: dict) -> dict:
             return execute_pdf_tool(function_name, arguments, db)
         
-        # Construire le contexte initial (plus léger, le LLM ira chercher les PDFs)
+        # Construire le contexte initial avec version overview
         context_parts = []
         context_parts.append(f"DATE ACTUELLE: {current_date}\n")
-        context_parts.append("=== CONFIGURATION ACTUELLE ET CIBLES ===\n")
+        
+        # === AJOUT: SD-WAN SOFTWARE VERSION OVERVIEW (par défaut) ===
+        context_parts.append("=== SD-WAN SOFTWARE VERSION OVERVIEW ===\n")
+        
+        # Gateway Versions
+        all_gateways = db.query(GatewayVersion).order_by(GatewayVersion.version.desc()).all()
+        if all_gateways:
+            context_parts.append("📡 GATEWAY VERSIONS:")
+            for gw in all_gateways[:15]:  # Top 15 versions
+                eol_marker = " ⚠️ EOL" if gw.is_end_of_life else ""
+                release = f" (Released: {gw.release_date})" if gw.release_date else ""
+                pdf = f" [PDF: {gw.source_file}]" if gw.source_file else ""
+                context_parts.append(f"  • {gw.version}{eol_marker}{release}{pdf}")
+        
+        # Edge Versions
+        all_edges = db.query(EdgeVersion).order_by(EdgeVersion.version.desc()).all()
+        if all_edges:
+            context_parts.append("\n🔷 EDGE VERSIONS:")
+            for edge in all_edges[:15]:  # Top 15 versions
+                eol_marker = " ⚠️ EOL" if edge.is_end_of_life else ""
+                release = f" (Released: {edge.release_date})" if edge.release_date else ""
+                pdf = f" [PDF: {edge.source_file}]" if edge.source_file else ""
+                context_parts.append(f"  • {edge.version}{eol_marker}{release}{pdf}")
+        
+        # Orchestrator Versions
+        all_orchestrators = db.query(OrchestratorVersion).order_by(OrchestratorVersion.version.desc()).all()
+        if all_orchestrators:
+            context_parts.append("\n🎛️ ORCHESTRATOR VERSIONS:")
+            for orch in all_orchestrators[:15]:  # Top 15 versions
+                eol_marker = " ⚠️ EOL" if orch.is_end_of_life else ""
+                release = f" (Released: {orch.release_date})" if orch.release_date else ""
+                pdf = f" [PDF: {orch.source_file}]" if orch.source_file else ""
+                context_parts.append(f"  • {orch.version}{eol_marker}{release}{pdf}")
+        
+        context_parts.append("\n=== CONFIGURATION ACTUELLE ET CIBLES LTS ===\n")
+        context_parts.append("🎯 OBJECTIF: Tous les composants doivent être upgradés vers leur version LTS (dernière version stable non-EOL)\n")
         
         # Liste des PDFs disponibles pour information
         available_pdfs = list_available_pdfs("all", db)
@@ -517,16 +617,20 @@ async def analyze_upgrade_with_pdfs(request: UpgradeAnalysisRequest, db: Session
         context_parts.append("Tu peux utiliser les outils (tools) pour consulter les PDFs des versions cibles.\n")
         
         for version_info in request.versions:
-            component = version_info.component.lower()
+            component_raw = version_info.component.lower().strip()
             current_ver = version_info.current_version
-            target_ver = version_info.target_version
             
-            context_parts.append(f"\n--- {component.upper()} ---")
-            context_parts.append(f"Version actuelle: {current_ver}")
-            if target_ver:
-                context_parts.append(f"Version cible: {target_ver}")
+            # Normaliser le nom du composant
+            if "gateway" in component_raw or "gateaway" in component_raw:
+                component = "gateway"
+            elif "edge" in component_raw:
+                component = "edge"
+            elif "orchestrator" in component_raw or "vco" in component_raw:
+                component = "orchestrator"
+            else:
+                continue  # Skip invalid components (already validated above)
             
-            # Récupérer uniquement la version TARGET (wanted version) depuis la DB
+            # Récupérer le modèle approprié
             if component == "gateway":
                 Model = GatewayVersion
             elif component == "edge":
@@ -536,22 +640,29 @@ async def analyze_upgrade_with_pdfs(request: UpgradeAnalysisRequest, db: Session
             else:
                 continue
             
-            # Query only for target version (the wanted version)
-            target_version_obj = None
-            if target_ver:
-                target_version_obj = db.query(Model).filter(Model.version == target_ver).first()
+            # Déterminer automatiquement la version LTS (dernière version non-EOL)
+            lts_version = db.query(Model).filter(
+                Model.is_end_of_life == False
+            ).order_by(Model.version.desc()).first()
             
-            # Show only target version PDF information
-            if target_version_obj:
-                context_parts.append(f"\n📄 PDF de la version cible {target_version_obj.version}:")
-                if target_version_obj.source_file:
-                    context_parts.append(f"  Fichier: {target_version_obj.source_file}")
-                if target_version_obj.release_date:
-                    context_parts.append(f"  📅 Release: {target_version_obj.release_date}")
-                if target_version_obj.end_of_life_date:
-                    context_parts.append(f"  ⏰ EOL: {target_version_obj.end_of_life_date}")
-                if target_version_obj.is_end_of_life:
-                    context_parts.append(f"  ⚠️ **END OF LIFE**")
+            if lts_version:
+                lts_ver = lts_version.version
+                context_parts.append(f"\n--- {component.upper()} ---")
+                context_parts.append(f"Version actuelle: {current_ver}")
+                context_parts.append(f"Version cible (LTS): {lts_ver} ✨")
+                
+                # Show LTS version PDF information
+                context_parts.append(f"\n📄 PDF de la version LTS {lts_version.version}:")
+                if lts_version.source_file:
+                    context_parts.append(f"  Fichier: {lts_version.source_file}")
+                if lts_version.release_date:
+                    context_parts.append(f"  📅 Release: {lts_version.release_date}")
+                if lts_version.end_of_life_date:
+                    context_parts.append(f"  ⏰ EOL: {lts_version.end_of_life_date}")
+            else:
+                context_parts.append(f"\n--- {component.upper()} ---")
+                context_parts.append(f"Version actuelle: {current_ver}")
+                context_parts.append(f"⚠️ Aucune version LTS trouvée")
         
         context = "\n".join(context_parts)
         
@@ -580,21 +691,31 @@ UTILISE CES OUTILS pour:
 5. **PRÉ-REQUIS**: ESXi, dépendances système, versions minimales requises
 6. **HARDWARE**: Considérer les appliances physiques ET software (VM) et leurs EOL
 7. **UTILISER LES PDFS**: Récupère les informations détaillées depuis les PDFs sources
+8. **⚠️ UPGRADES MULTI-ÉTAPES CRITIQUES**: Les sauts de version directs ne sont PAS toujours possibles!
+   - Un upgrade de 4.5.0 → 6.4.0 peut nécessiter des étapes intermédiaires (ex: 4.5.0 → 5.2.0 → 6.0.0 → 6.4.0)
+   - TOUJOURS vérifier dans les PDFs si des versions intermédiaires sont requises
+   - Identifier TOUTES les versions de passage nécessaires pour maintenir la compatibilité
+   - Respecter les chemins d'upgrade recommandés par le fabricant
 
 === TÂCHE ===
 Génère un guide d'upgrade COMPLET en format TEXTE CLAIR avec les sections suivantes:
 
 📋 **RÉSUMÉ DE L'UPGRADE**
-- Versions actuelles → Versions cibles pour chaque composant
+- **Objectif**: Upgrade de TOUS les composants vers leurs versions LTS (Long Term Support)
+- Versions actuelles → Versions LTS cibles pour chaque composant
+- **Nombre total d'étapes d'upgrade** (incluant TOUTES les versions intermédiaires)
 - Durée totale estimée
 - Fenêtre de maintenance recommandée
 - Sources PDF consultées
+- ⚠️ Avertissement: Cet upgrade nécessitera plusieurs étapes intermédiaires par composant
 
 ⚠️ **ANALYSE DE COMPATIBILITÉ**
 - Vérification des compatibilités entre composants (Orchestrator ↔ Gateway ↔ Edge)
-- Versions intermédiaires nécessaires (si un saut de version direct n'est pas supporté)
+- **⚠️ IMPORTANT: Versions intermédiaires nécessaires** - Identifier TOUTES les versions de passage requises
+- Chemins d'upgrade multi-étapes (ex: 4.5.0 → 5.2.0 → 6.0.0 → 6.4.0 au lieu d'un saut direct)
 - Pré-requis système (ESXi, RAM, CPU, etc.)
 - Identifie les hardware physiques et virtuels concernés
+- Justification de chaque version intermédiaire avec références PDFs
 
 🚨 **RISQUES ET PRÉCAUTIONS**
 Liste des risques par niveau de criticité:
@@ -604,14 +725,34 @@ Liste des risques par niveau de criticité:
 
 📝 **PLAN D'UPGRADE ÉTAPE PAR ÉTAPE**
 
-Pour chaque étape, fournis:
+⚠️ **FORMAT REQUIS**: Liste numérotée simple et claire pour chaque action
 
-**ÉTAPE X: [Titre descriptif]**
+EXEMPLE DU FORMAT ATTENDU:
+1. Upgrade Orchestrator from 5.2.0 to 5.4.0
+2. Upgrade Orchestrator from 5.4.0 to 6.0.0
+3. Upgrade Gateway from 5.4.0 to 5.6.0
+4. Upgrade Edge from 4.5.0 to 5.0.0
+5. Upgrade Gateway from 5.6.0 to 6.2.0
+6. Upgrade Edge from 5.0.0 to 6.0.0
+7. Upgrade Orchestrator from 6.0.0 to 6.4.0 (LTS)
+8. Upgrade Gateway from 6.2.0 to 6.4.0 (LTS)
+9. Upgrade Edge from 6.0.0 to 6.4.0 (LTS)
+
+**RÈGLES POUR LES ÉTAPES**:
+- TOUJOURS respecter l'ordre des dépendances (Orchestrator avant Gateway avant Edge)
+- INCLURE TOUTES les versions intermédiaires nécessaires - Il y AURA des étapes intermédiaires
+- Utiliser le format exact: "X. Upgrade [Component] from [version] to [version]"
+- Marquer la version finale avec "(LTS)" si c'est la version Long Term Support
+- Ne PAS regrouper plusieurs versions en une étape
+- Chaque ligne = une seule action d'upgrade
+
+Pour chaque étape numérotée, fournis ensuite les détails:
+
+**ÉTAPE X: Upgrade [Component] from [Version A] to [Version B]**
 - Composant: [Orchestrator/Gateway/Edge]
 - Type: [Software VM / Hardware Appliance / Validation]
-- Action: [Upgrade / Replace / Configure / Test]
-- Version: [current] → [target]
 - Durée estimée: [X] minutes
+- Source PDF: [nom du PDF consulté]
 
 Pré-requis:
 • [Liste des pré-requis à vérifier avant cette étape]
@@ -636,14 +777,28 @@ Rollback (en cas d'échec):
 - Contacts support recommandés
 - Backup et snapshots critiques
 
-**IMPORTANT**: 
-- Commence par lister les PDFs disponibles
-- Récupère les PDFs des **versions cibles/voulues** (target versions)
+**IMPORTANT - INSTRUCTIONS CRITIQUES**: 
+- Commence par lister les PDFs disponibles avec list_available_pdfs
+- Récupère les PDFs des **versions LTS** (Long Term Support) pour chaque composant
 - Base ton analyse sur le contenu réel des PDFs des versions cibles
 - Cite les PDFs sources utilisés dans chaque section
 - Fournis un texte CLAIR et STRUCTURÉ, pas de JSON
 - Utilise des émojis et formatage markdown pour la lisibilité
-- Sois TRÈS PRÉCIS sur les étapes hardware vs software
+
+**⚠️⚠️⚠️ RÈGLE ABSOLUE - UPGRADES MULTI-ÉTAPES OBLIGATOIRES ⚠️⚠️⚠️**:
+- IL Y AURA TOUJOURS des versions intermédiaires nécessaires
+- Un upgrade direct de version 4.x à 6.x est généralement IMPOSSIBLE
+- Tu DOIS identifier TOUTES les versions de passage (stepping stones)
+- VÉRIFIE dans les PDFs les chemins d'upgrade supportés
+- NE JAMAIS supposer qu'un saut direct est possible
+- Exemple: 4.5.0 → 6.4.0 nécessite probablement 4.5.0 → 5.2.0 → 6.0.0 → 6.4.0
+- Pour CHAQUE version intermédiaire, explique POURQUOI elle est nécessaire (compatibilité, pré-requis, documentation fabricant)
+- Utilise le format de liste numérotée simple: "1. Upgrade Edge from 4.5.0 to 5.0.0"
+
+**FORMAT DE SORTIE REQUIS**:
+- Liste numérotée simple au début du plan d'upgrade
+- Puis détails complets pour chaque étape
+- Respect strict de l'ordre Orchestrator → Gateway → Edge
 """
         
         # Utiliser analyze_with_tools
