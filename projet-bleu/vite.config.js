@@ -7,7 +7,7 @@ export default defineConfig({
     proxy: {
       // Toutes les requêtes commençant par /api seront redirigées vers ton serveur
       '/api': {
-        target: 'https://bleu.clementpickel.fr',
+        target: 'http://localhost:3000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
       }

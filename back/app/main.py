@@ -47,7 +47,7 @@ async def root():
     return {"message": "Welcome to Bleu Hackathon Orange API"}
 
 
-@app.post("/process", tags=["PDF Processing"])
+@app.post("/api/process", tags=["PDF Processing"])
 async def process(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Traite tous les PDFs dans le dossier assets et extrait TOUTES les informations:
@@ -94,7 +94,7 @@ async def process(background_tasks: BackgroundTasks, db: Session = Depends(get_d
         raise HTTPException(status_code=500, detail=f"Erreur lors du traitement: {str(e)}")
 
 
-@app.get("/products", response_model=List[dict], tags=["Products"])
+@app.get("/api/products", response_model=List[dict], tags=["Products"])
 async def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """
     Récupère la liste des produits extraits des PDFs
@@ -122,7 +122,7 @@ async def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(ge
     ]
 
 
-@app.get("/products/{product_id}", tags=["Products"])
+@app.get("/api/products/{product_id}", tags=["Products"])
 async def get_product(product_id: int, db: Session = Depends(get_db)):
     """
     Récupère un produit spécifique par son ID
@@ -145,7 +145,7 @@ async def get_product(product_id: int, db: Session = Depends(get_db)):
     }
 
 
-@app.delete("/products/{product_id}", tags=["Products"])
+@app.delete("/api/products/{product_id}", tags=["Products"])
 async def delete_product(product_id: int, db: Session = Depends(get_db)):
     """
     Supprime un produit de la base de données
@@ -160,7 +160,7 @@ async def delete_product(product_id: int, db: Session = Depends(get_db)):
     return {"status": "success", "message": f"Produit {product_id} supprimé"}
 
 
-@app.get("/gateways", response_model=List[dict], tags=["Versions"])
+@app.get("/api/gateways", response_model=List[dict], tags=["Versions"])
 async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, db: Session = Depends(get_db)):
     """
     Récupère la liste des versions Gateway (software uniquement)
@@ -192,7 +192,7 @@ async def get_gateways(skip: int = 0, limit: int = 100, eol_only: bool = False, 
     ]
 
 
-@app.get("/edges", response_model=List[dict], tags=["Versions"])
+@app.get("/api/edges", response_model=List[dict], tags=["Versions"])
 async def get_edges(skip: int = 0, limit: int = 100, eol_only: bool = False, db: Session = Depends(get_db)):
     """
     Récupère la liste des versions Edge (software uniquement)
@@ -224,7 +224,7 @@ async def get_edges(skip: int = 0, limit: int = 100, eol_only: bool = False, db:
     ]
 
 
-@app.get("/orchestrators", response_model=List[dict], tags=["Versions"])
+@app.get("/api/orchestrators", response_model=List[dict], tags=["Versions"])
 async def get_orchestrators(skip: int = 0, limit: int = 100, eol_only: bool = False, db: Session = Depends(get_db)):
     """
     Récupère la liste des versions Orchestrator/VCO (software uniquement)
@@ -256,7 +256,7 @@ async def get_orchestrators(skip: int = 0, limit: int = 100, eol_only: bool = Fa
     ]
 
 
-@app.get("/eol-summary", tags=["Versions"])
+@app.get("/api/eol-summary", tags=["Versions"])
 async def get_eol_summary(db: Session = Depends(get_db)):
     """
     Résumé des produits en fin de vie
@@ -312,7 +312,7 @@ class UpgradeAnalysisRequest(BaseModel):
     versions: List[VersionInfo]
 
 
-@app.post("/analyze-upgrade-path", tags=["Analysis"])
+@app.post("/api/analyze-upgrade-path", tags=["Analysis"])
 async def analyze_upgrade_path(request: UpgradeAnalysisRequest, db: Session = Depends(get_db)):
     """
     Analyse le chemin d'upgrade pour une liste de composants et leurs versions
@@ -477,7 +477,7 @@ IMPORTANT: Retourne UNIQUEMENT le JSON valide, sans markdown ni texte additionne
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")
 
 
-@app.post("/analyze-upgrade-with-pdfs", tags=["Analysis"])
+@app.post("/api/analyze-upgrade-with-pdfs", tags=["Analysis"])
 async def analyze_upgrade_with_pdfs(request: UpgradeAnalysisRequest, db: Session = Depends(get_db)):
     """
     Génère un guide d'upgrade TEXTE complet pour upgrader TOUS les composants vers LTS.
@@ -698,107 +698,43 @@ UTILISE CES OUTILS pour:
    - Respecter les chemins d'upgrade recommandés par le fabricant
 
 === TÂCHE ===
-Génère un guide d'upgrade COMPLET en format TEXTE CLAIR avec les sections suivantes:
-
-📋 **RÉSUMÉ DE L'UPGRADE**
-- **Objectif**: Upgrade de TOUS les composants vers leurs versions LTS (Long Term Support)
-- Versions actuelles → Versions LTS cibles pour chaque composant
-- **Nombre total d'étapes d'upgrade** (incluant TOUTES les versions intermédiaires)
-- Durée totale estimée
-- Fenêtre de maintenance recommandée
-- Sources PDF consultées
-- ⚠️ Avertissement: Cet upgrade nécessitera plusieurs étapes intermédiaires par composant
-
-⚠️ **ANALYSE DE COMPATIBILITÉ**
-- Vérification des compatibilités entre composants (Orchestrator ↔ Gateway ↔ Edge)
-- **⚠️ IMPORTANT: Versions intermédiaires nécessaires** - Identifier TOUTES les versions de passage requises
-- Chemins d'upgrade multi-étapes (ex: 4.5.0 → 5.2.0 → 6.0.0 → 6.4.0 au lieu d'un saut direct)
-- Pré-requis système (ESXi, RAM, CPU, etc.)
-- Identifie les hardware physiques et virtuels concernés
-- Justification de chaque version intermédiaire avec références PDFs
-
-🚨 **RISQUES ET PRÉCAUTIONS**
-Liste des risques par niveau de criticité:
-- CRITIQUE: [description + mitigation]
-- ÉLEVÉ: [description + mitigation]
-- MOYEN: [description + mitigation]
+Génère un guide d'upgrade CONCIS en format TEXTE avec UNE SEULE section:
 
 📝 **PLAN D'UPGRADE ÉTAPE PAR ÉTAPE**
 
-⚠️ **FORMAT REQUIS**: Liste numérotée simple et claire pour chaque action
+⚠️ **FORMAT REQUIS**: Liste numérotée UNIQUEMENT, une ligne par upgrade
 
 EXEMPLE DU FORMAT ATTENDU:
-1. Upgrade Orchestrator from 5.2.0 to 5.4.0
-2. Upgrade Orchestrator from 5.4.0 to 6.0.0
-3. Upgrade Gateway from 5.4.0 to 5.6.0
-4. Upgrade Edge from 4.5.0 to 5.0.0
-5. Upgrade Gateway from 5.6.0 to 6.2.0
-6. Upgrade Edge from 5.0.0 to 6.0.0
-7. Upgrade Orchestrator from 6.0.0 to 6.4.0 (LTS)
-8. Upgrade Gateway from 6.2.0 to 6.4.0 (LTS)
-9. Upgrade Edge from 6.0.0 to 6.4.0 (LTS)
+1. Mettre à jour l'Orchestrator de la version 5.2.0 à la version 5.4.0.
+2. Mettre à jour l'Orchestrator de la version 5.4.0 à la version 6.0.0.
+3. Mettre à jour le Gateway de la version 5.0.1 à la version 5.4.0.
+4. Mettre à jour l'Edge de la version 4.2.2 à la version 5.0.0.
+5. Mettre à jour le Gateway de la version 5.4.0 à la version 6.0.0.
+6. Mettre à jour l'Edge de la version 5.0.0 à la version 6.0.0.
+7. Mettre à jour l'Orchestrator de la version 6.0.0 à la version 6.4.0.
+8. Mettre à jour le Gateway de la version 6.0.0 à la version 6.4.0.
+9. Mettre à jour l'Edge de la version 6.0.0 à la version 6.4.0.
 
-**RÈGLES POUR LES ÉTAPES**:
-- TOUJOURS respecter l'ordre des dépendances (Orchestrator avant Gateway avant Edge)
-- INCLURE TOUTES les versions intermédiaires nécessaires - Il y AURA des étapes intermédiaires
-- Utiliser le format exact: "X. Upgrade [Component] from [version] to [version]"
-- Marquer la version finale avec "(LTS)" si c'est la version Long Term Support
-- Ne PAS regrouper plusieurs versions en une étape
-- Chaque ligne = une seule action d'upgrade
+**RÈGLES STRICTES**:
+- Format EXACT: "X. Mettre à jour le [Component] de la version [version actuelle] à la version [version cible]."
+- UNE SEULE ligne par étape d'upgrade
+- TOUJOURS respecter l'ordre Orchestrator → Gateway → Edge
+- INCLURE TOUTES les versions intermédiaires nécessaires
+- PAS de descriptions, PAS de détails, SEULEMENT la liste numérotée
+- Utiliser "Orchestrator" (pas VCO), "Gateway", "Edge" dans les noms
+- Terminer chaque ligne par un point
 
-Pour chaque étape numérotée, fournis ensuite les détails:
+**IMPORTANT**: 
+- Génère UNIQUEMENT la liste numérotée, rien d'autre
+- Pas de résumé, pas d'analyse, pas de notes
+- Juste les étapes d'upgrade en français, format strict
 
-**ÉTAPE X: Upgrade [Component] from [Version A] to [Version B]**
-- Composant: [Orchestrator/Gateway/Edge]
-- Type: [Software VM / Hardware Appliance / Validation]
-- Durée estimée: [X] minutes
-- Source PDF: [nom du PDF consulté]
-
-Pré-requis:
-• [Liste des pré-requis à vérifier avant cette étape]
-
-Instructions détaillées:
-1. [Instruction précise étape par étape]
-2. [Inclure les commandes CLI si pertinent]
-3. [Inclure les captures d'écran/menus GUI si pertinent]
-
-Validation:
-✓ [Tests à effectuer pour valider cette étape]
-✓ [Critères de succès mesurables]
-
-Rollback (en cas d'échec):
-↩️ [Procédure de retour arrière si cette étape échoue]
-
----
-
-🔍 **NOTES IMPORTANTES**
-- Considérations hardware spécifiques
-- Liens vers les PDFs sources pour plus de détails
-- Contacts support recommandés
-- Backup et snapshots critiques
-
-**IMPORTANT - INSTRUCTIONS CRITIQUES**: 
-- Commence par lister les PDFs disponibles avec list_available_pdfs
-- Récupère les PDFs des **versions LTS** (Long Term Support) pour chaque composant
-- Base ton analyse sur le contenu réel des PDFs des versions cibles
-- Cite les PDFs sources utilisés dans chaque section
-- Fournis un texte CLAIR et STRUCTURÉ, pas de JSON
-- Utilise des émojis et formatage markdown pour la lisibilité
-
-**⚠️⚠️⚠️ RÈGLE ABSOLUE - UPGRADES MULTI-ÉTAPES OBLIGATOIRES ⚠️⚠️⚠️**:
-- IL Y AURA TOUJOURS des versions intermédiaires nécessaires
-- Un upgrade direct de version 4.x à 6.x est généralement IMPOSSIBLE
-- Tu DOIS identifier TOUTES les versions de passage (stepping stones)
-- VÉRIFIE dans les PDFs les chemins d'upgrade supportés
-- NE JAMAIS supposer qu'un saut direct est possible
-- Exemple: 4.5.0 → 6.4.0 nécessite probablement 4.5.0 → 5.2.0 → 6.0.0 → 6.4.0
-- Pour CHAQUE version intermédiaire, explique POURQUOI elle est nécessaire (compatibilité, pré-requis, documentation fabricant)
-- Utilise le format de liste numérotée simple: "1. Upgrade Edge from 4.5.0 to 5.0.0"
-
-**FORMAT DE SORTIE REQUIS**:
-- Liste numérotée simple au début du plan d'upgrade
-- Puis détails complets pour chaque étape
-- Respect strict de l'ordre Orchestrator → Gateway → Edge
+**INSTRUCTIONS D'EXÉCUTION**: 
+- Consulte les PDFs disponibles avec list_available_pdfs pour identifier les versions
+- Base ton analyse sur les chemins d'upgrade documentés dans les PDFs
+- IL Y AURA TOUJOURS des versions intermédiaires (pas de sauts de 4.x à 6.x)
+- Respecte STRICTEMENT l'ordre: Orchestrator → Gateway → Edge
+- Génère UNIQUEMENT la liste numérotée, sans explications supplémentaires
 """
         
         # Utiliser analyze_with_tools
@@ -821,7 +757,7 @@ Rollback (en cas d'échec):
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'analyse: {str(e)}")
 
 
-@app.get("/list-pdfs", tags=["PDFs"])
+@app.get("/api/list-pdfs", tags=["PDFs"])
 async def list_pdfs_endpoint(component_type: str = "all", db: Session = Depends(get_db)):
     """
     Liste tous les PDFs disponibles avec leurs métadonnées.

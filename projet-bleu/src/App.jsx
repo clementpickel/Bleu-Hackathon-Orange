@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   PlusCircle, Database, Trash2, RefreshCw, Loader2, Zap, Clock, CheckCircle2, Milestone, Cpu, ShieldAlert
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 const API_BASE_URL = '/api';
 
 const ProjetBleuApp = () => {
   const [view, setView] = useState('input');
   const [loading, setLoading] = useState(false);
+  const [processingPdfs, setProcessingPdfs] = useState(false);
+  const [upgradeAnalysis, setUpgradeAnalysis] = useState('');
   
   const [gatewaysCatalog, setGatewaysCatalog] = useState([]);
   const [edgesCatalog, setEdgesCatalog] = useState([]);
@@ -65,6 +68,36 @@ const ProjetBleuApp = () => {
     return isNaN(d.getTime()) ? null : d;
   };
 
+  const processPdfs = async () => {
+    setProcessingPdfs(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('PDFs processed:', data);
+        // Reload catalog data after processing
+        const [gatewaysRes, edgesRes, orchestratorsRes, productsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/gateways`),
+          fetch(`${API_BASE_URL}/edges`),
+          fetch(`${API_BASE_URL}/orchestrators`),
+          fetch(`${API_BASE_URL}/products`)
+        ]);
+        setGatewaysCatalog(await gatewaysRes.json());
+        setEdgesCatalog(await edgesRes.json());
+        setOrchestratorsCatalog(await orchestratorsRes.json());
+        setProductsCatalog(await productsRes.json());
+      }
+    } catch (error) {
+      console.error('Error processing PDFs:', error);
+    } finally {
+      setProcessingPdfs(false);
+    }
+  };
+
   const analyzeItem = (item) => {
     const today = new Date('2026-02-07'); 
     const limitDate = new Date('2026-02-07');
@@ -112,22 +145,45 @@ const ProjetBleuApp = () => {
 
   const runAnalysis = async () => {
     setLoading(true);
-    const filteredVersions = inventory
-      .filter(item => analyzeItem(item).hw.status !== 'CRITICAL')
-      .map(item => ({
-        component: `${item.type} ${item.model}`,
-        current_version: item.version,
-        target_version: "6.4.1"
-      }));
+    
+    // Group inventory by component type and get representative versions
+    const getComponentVersion = (type) => {
+      const items = inventory.filter(item => item.type === type);
+      // Get the most common or first version for each component type
+      return items.length > 0 ? items[0].version : null;
+    };
+
+    const versions = [];
+    const orchestratorVersion = getComponentVersion('VCO');
+    const gatewayVersion = getComponentVersion('Gateway');
+    const edgeVersion = getComponentVersion('Edge');
+
+    if (orchestratorVersion) versions.push({ component: 'orchestrator', current_version: orchestratorVersion });
+    if (gatewayVersion) versions.push({ component: 'gateway', current_version: gatewayVersion });
+    if (edgeVersion) versions.push({ component: 'edge', current_version: edgeVersion });
 
     try {
-      await fetch(`${API_BASE_URL}/analyze_upgrade_path`, {
+      const response = await fetch(`${API_BASE_URL}/analyze-upgrade-with-pdfs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ versions: filteredVersions })
+        body: JSON.stringify({ versions })
       });
+      
+      const data = await response.json();
+      console.log('Analysis response:', data);
+      
+      // Extract text from response - prioritize reasoning field
+      let analysisText = '';
+      if (typeof data === 'string') {
+        analysisText = data;
+      } else if (data.result && data.result.reasoning) {
+        analysisText = typeof data.result.reasoning === 'string' ? data.result.reasoning : JSON.stringify(data.result.reasoning);
+      }
+      
+      setUpgradeAnalysis(analysisText);
       setView('dashboard');
     } catch (error) {
+      console.error('Error analyzing upgrade:', error);
       setView('dashboard');
     } finally {
       setLoading(false);
@@ -152,6 +208,23 @@ const ProjetBleuApp = () => {
         <div className="flex items-center gap-4">
           <img src="/logoBleu.png" alt="Logo" className="h-16 w-16 object-contain" />
           <h1 className="text-3xl font-black uppercase italic tracking-tighter leading-none">Projet <span className="text-blue-600">Bleu</span></h1>
+          <button 
+            onClick={processPdfs} 
+            disabled={processingPdfs}
+            className="bg-blue-600 text-white px-3 py-2 text-xs font-bold hover:bg-blue-700 disabled:bg-gray-400 transition-colors shadow-sm rounded flex items-center gap-2"
+          >
+            {processingPdfs ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Database size={14} />
+                Process PDFs
+              </>
+            )}
+          </button>
         </div>
         <div className="bg-black text-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest leading-none">Orange 2026</div>
       </nav>
@@ -218,56 +291,76 @@ const ProjetBleuApp = () => {
                <button onClick={() => setView('input')} className="text-[10px] font-black uppercase bg-black text-white px-4 py-2 hover:bg-blue-600 transition-colors">Retour Saisie</button>
             </header>
 
-            {/* PHASE 0 : TRAJECTOIRE */}
-            <div className="bg-black text-white p-6 shadow-xl border-l-8 border-blue-600">
-                <h3 className="text-lg font-black uppercase mb-2 flex items-center gap-2 italic"><Milestone className="text-blue-400" /> Trajectoire Software Cible</h3>
-                <p className="text-sm font-bold tracking-tight">c'est ce super chemin pour la dernière version : <span className="text-blue-400 font-mono">/test/coucou</span></p>
-            </div>
+            {upgradeAnalysis && (
+              <div className="bg-white p-8 shadow-xl border-t-8 border-blue-600 rounded-lg mb-8">
+                <div className="prose prose-lg max-w-none 
+                  prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight
+                  prose-h1:text-4xl prose-h1:text-blue-600 prose-h1:border-b-4 prose-h1:border-blue-600 prose-h1:pb-3 prose-h1:mb-6
+                  prose-h2:text-2xl prose-h2:text-orange-600 prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-l-8 prose-h2:border-orange-500 prose-h2:pl-4
+                  prose-h3:text-xl prose-h3:text-blue-500 prose-h3:mt-6 prose-h3:mb-3
+                  prose-p:text-slate-700 prose-p:leading-relaxed prose-p:my-3
+                  prose-li:text-slate-700 prose-li:my-2
+                  prose-strong:text-blue-600 prose-strong:font-black
+                  prose-em:text-orange-600 prose-em:italic
+                  prose-ol:my-4 prose-ol:list-decimal prose-ol:pl-6
+                  prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6
+                  prose-code:bg-gray-100 prose-code:px-2 prose-code:py-1 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:text-blue-700
+                  prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto
+                  prose-blockquote:border-l-4 prose-blockquote:border-orange-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-gray-600
+                  prose-hr:border-gray-300 prose-hr:my-8
+                  prose-table:my-6 prose-table:border-collapse
+                  prose-th:bg-blue-600 prose-th:text-white prose-th:font-black prose-th:uppercase prose-th:px-4 prose-th:py-2 prose-th:text-xs
+                  prose-td:border prose-td:border-gray-300 prose-td:px-4 prose-td:py-2 prose-td:text-sm
+                  prose-a:text-blue-600 prose-a:font-semibold prose-a:no-underline hover:prose-a:underline">
+                  <ReactMarkdown>{upgradeAnalysis}</ReactMarkdown>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* PHASE 1 : LOGICIEL (SOFTWARE) - Regroupe toutes les versions périmées ou à moins de 2 ans */}
-              <div className="bg-white p-6 shadow-xl border-t-8 border-orange-500">
-                <h3 className="text-lg font-black uppercase mb-6 flex items-center gap-2 text-orange-600 italic font-black"><RefreshCw /> Phase 1 : Cycle de vie Software</h3>
-                <div className="space-y-6">
-                  {inventory.map(item => {
-                    const { sw } = analyzeItem(item);
-                    if (sw.status === 'OK') return null;
-                    return (
-                      <div key={item.id} className={`p-3 border-l-4 rounded shadow-sm ${sw.status === 'CRITICAL' ? 'bg-red-50 border-red-500' : 'bg-orange-50 border-orange-500'}`}>
-                        <p className="text-xs font-black uppercase">{item.qty} x {item.type} {item.model} ({item.version})</p>
-                        <p className="text-[11px] mt-1 font-semibold">EOL Détectée : <span className="font-mono">{sw.date}</span></p>
-                        <p className={`text-[9px] mt-1 font-bold uppercase ${sw.status === 'CRITICAL' ? 'text-red-600' : 'text-orange-600'}`}>
-                          {sw.status === 'CRITICAL' ? '⚠️ Version obsolète : Mise à jour immédiate' : 'ℹ️ Fin de support proche : Mise à jour planifiée'}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* PHASE 2 : MATÉRIEL (HARDWARE) - Regroupe tous les boîtiers périmés ou à moins de 2 ans */}
-              <div className="bg-white p-6 shadow-xl border-t-8 border-blue-600">
-                <h3 className="text-lg font-black uppercase mb-6 flex items-center gap-2 text-blue-600 italic font-black"><Cpu /> Phase 2 : Obsolescence Hardware</h3>
-                <div className="space-y-6">
-                  {inventory.map(item => {
-                    const { hw } = analyzeItem(item);
-                    if (hw.status === 'OK') return null;
-                    return (
-                      <div key={item.id} className={`p-3 border-l-4 rounded shadow-md ${hw.status === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-orange-50 border-orange-500 text-orange-900'}`}>
-                        <p className="text-xs font-black uppercase tracking-tight">{item.qty} x {item.type} {item.model} ({item.version})</p>
-                        <p className="text-[11px] mt-1 font-medium italic">EOL Détectée : <span className="font-mono font-bold underline decoration-dotted">{hw.date}</span></p>
-                        {hw.alternatives && (
-                          <p className={`text-[11px] mt-1 font-medium ${hw.status === 'CRITICAL' ? 'text-white' : 'text-orange-800'}`}>
-                            alternatives proposées : <span className={`font-black uppercase ${hw.status === 'CRITICAL' ? 'bg-black/20' : 'bg-orange-200'} px-1 rounded`}>{hw.alternatives}</span>
+                {/* PHASE 1 : LOGICIEL (SOFTWARE) - Local analysis */}
+                <div className="bg-white p-6 shadow-xl border-t-8 border-orange-500">
+                  <h3 className="text-lg font-black uppercase mb-6 flex items-center gap-2 text-orange-600 italic"><RefreshCw /> Phase 1 : Cycle de vie Software</h3>
+                  <div className="space-y-6">
+                    {inventory.map(item => {
+                      const { sw } = analyzeItem(item);
+                      if (sw.status === 'OK') return null;
+                      return (
+                        <div key={item.id} className={`p-3 border-l-4 rounded shadow-sm ${sw.status === 'CRITICAL' ? 'bg-red-50 border-red-500' : 'bg-orange-50 border-orange-500'}`}>
+                          <p className="text-xs font-black uppercase">{item.qty} x {item.type} {item.model} ({item.version})</p>
+                          <p className="text-[11px] mt-1 font-semibold">EOL Détectée : <span className="font-mono">{sw.date}</span></p>
+                          <p className={`text-[9px] mt-1 font-bold uppercase ${sw.status === 'CRITICAL' ? 'text-red-600' : 'text-orange-600'}`}>
+                            {sw.status === 'CRITICAL' ? '⚠️ Version obsolète : Mise à jour immédiate' : 'ℹ️ Fin de support proche : Mise à jour planifiée'}
                           </p>
-                        )}
-                      </div>
-                    );
-                  })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* PHASE 2 : MATÉRIEL (HARDWARE) - Local analysis */}
+                <div className="bg-white p-6 shadow-xl border-t-8 border-blue-600">
+                  <h3 className="text-lg font-black uppercase mb-6 flex items-center gap-2 text-blue-600 italic"><Cpu /> Phase 2 : Obsolescence Hardware</h3>
+                  <div className="space-y-6">
+                    {inventory.map(item => {
+                      const { hw } = analyzeItem(item);
+                      if (hw.status === 'OK') return null;
+                      return (
+                        <div key={item.id} className={`p-3 border-l-4 rounded shadow-md ${hw.status === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-orange-50 border-orange-500 text-orange-900'}`}>
+                          <p className="text-xs font-black uppercase tracking-tight">{item.qty} x {item.type} {item.model} ({item.version})</p>
+                          <p className="text-[11px] mt-1 font-medium italic">EOL Détectée : <span className="font-mono font-bold underline decoration-dotted">{hw.date}</span></p>
+                          {hw.alternatives && (
+                            <p className={`text-[11px] mt-1 font-medium ${hw.status === 'CRITICAL' ? 'text-white' : 'text-orange-800'}`}>
+                              alternatives proposées : <span className={`font-black uppercase ${hw.status === 'CRITICAL' ? 'bg-black/20' : 'bg-orange-200'} px-1 rounded`}>{hw.alternatives}</span>
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
         )}
       </main>
     </div>
