@@ -3,39 +3,33 @@ Projet 1 - SD-WAN Velocloud
 
 ## 🚀 Quick Start
 
-### Backend (FastAPI)
+### Démarrer l'application avec Docker
 
-1. **Installation des dépendances**
+1. **Démarrer tous les services**
 ```bash
-cd back
-pip install -r requirements.txt
+docker-compose up --build
 ```
 
-2. **Démarrer l'API**
+2. **Démarrer en arrière-plan**
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 3000
+docker-compose up -d --build
 ```
 
-3. **Accéder à la documentation**
-- Swagger UI: http://localhost:3000/swagger
-- ReDoc: http://localhost:3000/redoc
-- Health Check: http://localhost:3000/health
-
-### Frontend (React + Vite)
-
-1. **Installation des dépendances**
+3. **Arrêter les services**
 ```bash
-cd projet-bleu
-npm install
+docker-compose down
 ```
 
-2. **Démarrer le frontend**
+4. **Arrêter et supprimer les volumes**
 ```bash
-npm run dev
+docker-compose down -v
 ```
 
-3. **Accéder à l'application**
-- Local: http://localhost:5173
+5. **Accéder à l'application**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- Swagger UI: http://localhost:8000/swagger
+- ReDoc: http://localhost:8000/redoc
 
 ## 🌐 Live Demo
 
@@ -45,10 +39,10 @@ npm run dev
 
 ## 📦 Architecture
 
-- **Backend**: FastAPI (Python) - Port 3000
-- **Frontend**: React + Vite - Port 5173
+- **Backend**: FastAPI (Python)
+- **Frontend**: React + Vite
 - **Database**: SQLite
-- **LLM**: OpenAI GPT-4 avec function calling pour analyse des PDFs
+- **LLM**: OpenAI GPT-4 avec function calling pour analyse des PDFs, llama-3.3-70b-versatile pour l'extraction d'information des PDFs
 
 ## 🔑 Fonctionnalités
 
