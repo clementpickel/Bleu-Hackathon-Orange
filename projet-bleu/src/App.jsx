@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  PlusCircle, Database, Trash2, RefreshCw, Loader2, Zap, Clock, CheckCircle2, Milestone, Cpu, ShieldAlert
+  PlusCircle, Database, Trash2, RefreshCw, Loader2, Zap, Clock, CheckCircle2, Milestone, Cpu, ShieldAlert, ArrowRight
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = 'https://bleu.clementpickel.fr/api';
 
 const ProjetBleuApp = () => {
   const [view, setView] = useState('input');
@@ -291,32 +291,6 @@ const ProjetBleuApp = () => {
                <button onClick={() => setView('input')} className="text-[10px] font-black uppercase bg-black text-white px-4 py-2 hover:bg-blue-600 transition-colors">Retour Saisie</button>
             </header>
 
-            {upgradeAnalysis && (
-              <div className="bg-white p-8 shadow-xl border-t-8 border-blue-600 rounded-lg mb-8">
-                <div className="prose prose-lg max-w-none 
-                  prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight
-                  prose-h1:text-4xl prose-h1:text-blue-600 prose-h1:border-b-4 prose-h1:border-blue-600 prose-h1:pb-3 prose-h1:mb-6
-                  prose-h2:text-2xl prose-h2:text-orange-600 prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-l-8 prose-h2:border-orange-500 prose-h2:pl-4
-                  prose-h3:text-xl prose-h3:text-blue-500 prose-h3:mt-6 prose-h3:mb-3
-                  prose-p:text-slate-700 prose-p:leading-relaxed prose-p:my-3
-                  prose-li:text-slate-700 prose-li:my-2
-                  prose-strong:text-blue-600 prose-strong:font-black
-                  prose-em:text-orange-600 prose-em:italic
-                  prose-ol:my-4 prose-ol:list-decimal prose-ol:pl-6
-                  prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6
-                  prose-code:bg-gray-100 prose-code:px-2 prose-code:py-1 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:text-blue-700
-                  prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:p-4 prose-pre:rounded-lg prose-pre:overflow-x-auto
-                  prose-blockquote:border-l-4 prose-blockquote:border-orange-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-gray-600
-                  prose-hr:border-gray-300 prose-hr:my-8
-                  prose-table:my-6 prose-table:border-collapse
-                  prose-th:bg-blue-600 prose-th:text-white prose-th:font-black prose-th:uppercase prose-th:px-4 prose-th:py-2 prose-th:text-xs
-                  prose-td:border prose-td:border-gray-300 prose-td:px-4 prose-td:py-2 prose-td:text-sm
-                  prose-a:text-blue-600 prose-a:font-semibold prose-a:no-underline hover:prose-a:underline">
-                  <ReactMarkdown>{upgradeAnalysis}</ReactMarkdown>
-                </div>
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* PHASE 1 : LOGICIEL (SOFTWARE) - Local analysis */}
                 <div className="bg-white p-6 shadow-xl border-t-8 border-orange-500">
@@ -362,6 +336,53 @@ const ProjetBleuApp = () => {
               </div>
             </div>
         )}
+        
+{/* TRAJECTOIRE D'UPGRADE OPTIMALE */}
+{upgradeAnalysis && (
+  <div className="bg-white shadow-2xl border-l-[12px] border-blue-600 rounded-r-2xl mb-20 overflow-hidden animate-in fade-in slide-in-from-left-6 duration-1000">
+    {/* Header Premium */}
+    <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-8 py-5 flex items-center justify-between border-b border-white/10">
+      <div className="flex items-center gap-4">
+        <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-900/20">
+          <Milestone className="text-white" size={24} />
+        </div>
+        <div>
+          <h3 className="text-white font-black uppercase tracking-widest text-sm">Plan de Migration Automatisé</h3>
+          <p className="text-blue-400 text-[10px] font-bold uppercase tracking-tighter">Chemins de mise à jour optimisés via intelligence documentaire</p>
+        </div>
+      </div>
+    </div>
+
+    {/* Zone de contenu stylisée */}
+    <div className="p-8 bg-slate-50/50">
+      <ReactMarkdown
+        components={{
+          // On customise le rendu des paragraphes
+          p: ({ children }) => <p className="text-slate-700 font-bold mb-6 text-sm leading-relaxed">{children}</p>,
+          // On transforme les listes en flux d'étapes
+          ul: ({ children }) => <ul className="space-y-4 relative">{children}</ul>,
+          // Chaque ligne (li) devient une carte d'étape
+          li: ({ children }) => (
+            <li className="group flex items-start gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-300 transform hover:-translate-x-1">
+              <div className="mt-1 bg-blue-100 text-blue-600 p-1.5 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <ArrowRight size={14} className="font-bold" />
+              </div>
+              <div className="text-slate-600 font-bold text-sm tracking-tight leading-snug">
+                {children}
+              </div>
+            </li>
+          ),
+          // Style pour le gras
+          strong: ({ children }) => <strong className="text-blue-600 font-black tracking-tight">{children}</strong>,
+          // Style pour les titres éventuels dans le markdown
+          h3: ({ children }) => <h4 className="text-slate-900 font-black uppercase text-xs mb-3 flex items-center gap-2 italic">{children}</h4>
+        }}
+      >
+        {upgradeAnalysis}
+      </ReactMarkdown>
+    </div>
+  </div>
+)}
       </main>
     </div>
   );
